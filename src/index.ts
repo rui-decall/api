@@ -196,6 +196,7 @@ app.post('/bookings/:booking_id/payments', timeout(30000), async (c) => {
 
 app.post('/get_available_slots', async (c) => {
   const body = await c.req.json()
+  const type = c.req.query('type')
 
   try {
     const request = new RetellRequest(body)
@@ -310,6 +311,17 @@ app.post('/submit_transaction', async (c) => {
     const transactionDetails = await parseTransactionDetails(body)
     console.log('Transaction Details:', transactionDetails)
 
+    // Example of transaction details:
+    // Transaction Details: {
+    //   user_wallet: '0xcafe',
+    //   user_phone: 12345678,
+    //   date: '2023-10-27',
+    //   time: '1000',
+    //   action: 'create',
+    //   reference_id: '',
+    //   remark: 'Hair dye service with red color'
+    // }
+
     let tx_hash = ""
     let booking_id = uuidv4() // Generate a UUID for the booking for now. In the end we should have retrive this from the DB when inserting
 
@@ -323,16 +335,7 @@ app.post('/submit_transaction', async (c) => {
       tx_hash = tx
     }
 
-    // Example of transaction details:
-    // Transaction Details: {
-    //   user_wallet: '0xcafe',
-    //   user_phone: 12345678,
-    //   date: '2023-10-27',
-    //   time: '1000',
-    //   action: 'create',
-    //   reference_id: '',
-    //   remark: 'Hair dye service with red color'
-    // }
+
     
     // Return response including the transaction details
     return c.json({
