@@ -19,7 +19,6 @@ app.use('*', postgresMiddleware)
 app.post('/phones/:phone/wallets', async (c) => {
   
   const phone = c.req.param('phone')
-  const body = await c.req.json()
 
   if (!phone) {
     return c.json({ error: 'Phone is required' }, 400)
