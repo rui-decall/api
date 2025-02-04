@@ -112,6 +112,8 @@ export type HonoSchema = {
     CDP_API_KEY_PRIVATE_KEY: string
     OPENAI_API_KEY: string
     NETWORK_ID: string
+    RPC_URL: string
+    CONTRACT_ADDRESS: string
     // JWT_SECRET: string
     // INFERENCE_URL: string
     // UPSTASH_REDIS_REST_URL: string

@@ -6,20 +6,22 @@ import { cors } from 'hono/cors'
 import { HonoSchema, postgresMiddleware } from './middleware'
 import { serve } from '@hono/node-server'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
-import { createWalletClient, http, parseEther } from "viem";
+import { createPublicClient, createWalletClient, http, parseEther } from "viem";
 import { baseSepolia } from "viem/chains";
 import { timeout } from 'hono/timeout'
 import { RetellRequest } from './types/RetellRequest'
 import { v4 as uuidv4 } from 'uuid';
 
 const owner_wallet = "0xCaFE1246df2B91336A87b655247Bd91086632518"
+import abi from "./abi.json";
+
 
 const app = new Hono<HonoSchema>()
 app.use('*', cors())
 app.use('*', postgresMiddleware)
 
 app.post('/phones/:phone/wallets', async (c) => {
-  
+
   const phone = c.req.param('phone')
 
   if (!phone) {
@@ -43,13 +45,12 @@ app.post('/phones/:phone/wallets', async (c) => {
 
 app.get('/phones/:phone/wallets', async (c) => {
   const phone = c.req.param('phone')
-  console.log('hi')
   const sql = c.var.sql
 
   const wallets = await sql<{
     address: string
     phone: string
-  }[]>`SELECT address, phone FROM wallets WHERE phone = ${phone}`
+  }[]>`SELECT address, phone FROM users WHERE phone = ${phone}`
   if (wallets.length === 0) {
     return c.json({ error: 'Wallet not found' }, 404)
   }
@@ -123,8 +124,75 @@ app.post('/get_user_info', async (c) => {
   return c.json({
     user_name: 'Yao'
   })
-
 })
+
+app.post('/bookings/:booking_id/payments', timeout(30000), async (c) => {
+  const bookingId = c.req.param('booking_id')
+  const body = await c.req.json()
+
+  const { data, error } = z.object({
+    payer: z.string(),
+    amount: z.string(),
+  })
+    .safeParse(body)
+
+  if (!data) {
+    return c.json({ error: error.format() }, 400)
+  }
+
+  const { payer, amount } = data
+  const payerWallet = await c.var.sql<{
+    address: string
+    private_key: string
+  }[]>`SELECT * FROM wallets WHERE address = ${payer}`
+    .then(res => res.length > 0 && res[0])
+
+  if (!payerWallet) {
+    return c.json({ error: 'From wallet not found' }, 400)
+  }
+
+  const booking = await c.var.sql<{
+    seller: string
+  }[]>`
+  SELECT *, sellers.wallet_address "seller" FROM bookings 
+  JOIN sellers ON bookings.seller_id = sellers.id
+  WHERE id = ${bookingId}`
+    .then(res => res.length > 0 && res[0])
+
+  if (!booking) {
+    return c.json({ error: 'Booking not found' }, 400)
+  }
+
+  const seller = booking.seller
+
+  const account = privateKeyToAccount(payerWallet.private_key as `0x${string}`)
+
+  const publicClient = createPublicClient({
+    chain: baseSepolia,
+    transport: http(c.env.RPC_URL),
+  })
+
+  const client = createWalletClient({
+    account,
+    chain: baseSepolia,
+    transport: http(c.env.RPC_URL),
+  })
+
+
+  const { request, result } = await publicClient.simulateContract({
+    abi: abi,
+    address: c.env.CONTRACT_ADDRESS as `0x${string}`,
+    functionName: "book",
+    args: [seller, parseEther(amount), bookingId],
+    value: parseEther(amount)
+  })
+
+  const hash = await client.writeContract(request)
+
+  return c.json({ tx: hash })
+})
+
+// app.use('/wallets/:wallet/*', agentMiddleware)
 
 app.post('/get_available_slots', async (c) => {
   const body = await c.req.json()
