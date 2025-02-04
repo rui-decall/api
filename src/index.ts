@@ -10,8 +10,9 @@ import { createWalletClient, http, parseEther } from "viem";
 import { baseSepolia } from "viem/chains";
 import { timeout } from 'hono/timeout'
 import { RetellRequest } from './types/RetellRequest'
+import { v4 as uuidv4 } from 'uuid';
 
-
+const owner_wallet = "0xCaFE1246df2B91336A87b655247Bd91086632518"
 
 const app = new Hono<HonoSchema>()
 app.use('*', cors())
@@ -58,6 +59,37 @@ app.get('/phones/:phone/wallets', async (c) => {
   return c.json({ wallet })
 })
 
+async function executeTransfer(
+  sql: any,
+  fromAddress: string,
+  toAddress: string,
+  amount: string
+) {
+  const fromWallet = await sql<{
+    address: string
+    private_key: string
+  }[]>`SELECT * FROM wallets WHERE address = ${fromAddress}`
+    .then((res: any) => res.length > 0 && res[0])
+
+  if (!fromWallet) {
+    throw new Error('From wallet not found')
+  }
+
+  const account = privateKeyToAccount(fromWallet.private_key as `0x${string}`)
+  const client = createWalletClient({
+    account,
+    chain: baseSepolia,
+    transport: http(),
+  })
+  
+  const tx = await client.sendTransaction({
+    to: toAddress as `0x${string}`,
+    value: parseEther(amount),
+  })
+
+  return tx
+}
+
 app.post('/transfers', timeout(30000), async (c) => {
   const body = await c.req.json()
 
@@ -73,38 +105,26 @@ app.post('/transfers', timeout(30000), async (c) => {
   }
 
   const { from_address, to_address, amount } = data
-  const fromWallet = await c.var.sql<{
-    address: string
-    private_key: string
-  }[]>`SELECT * FROM wallets WHERE address = ${from_address}`
-    .then(res => res.length > 0 && res[0])
-
-  if (!fromWallet) {
-    return c.json({ error: 'From wallet not found' }, 400)
+  
+  try {
+    const tx = await executeTransfer(c.var.sql, from_address, to_address, amount)
+    return c.json({ tx })
+  } catch (error) {
+    return c.json({ 
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    }, 400)
   }
-
-  const account = privateKeyToAccount(fromWallet.private_key as `0x${string}`)
-  const client = createWalletClient({
-    account,
-    chain: baseSepolia,
-    transport: http(),
-  })
-  const tx = await client.sendTransaction({
-    to: to_address as `0x${string}`,
-    value: parseEther(amount),
-  })
-
-  return c.json({ tx })
 })
 
 app.post('/get_user_info', async (c) => {
   const body = await c.req.json()
-  const request = new RetellRequest(body)
+  console.log('body', body)
+  
   return c.json({
     user_name: 'Yao'
   })
-})
 
+})
 
 app.post('/get_available_slots', async (c) => {
   const body = await c.req.json()
@@ -191,28 +211,68 @@ app.post('/get_user_appointment', async (c) => {
   }
 })
 
+const parseTransactionDetails =  async (body: any) => {
+
+  const response = await fetch('https://run.nodegen.fun/execute/workflow/ae9cd542-92d8-4c60-9c6d-7a7506eb61bd', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      input: {
+        message: JSON.stringify({
+          query: body.args.query,
+          context: body.call.retell_llm_dynamic_variables
+        }),
+        threadId: 'thread_1',
+        userId: 'user_1'
+      }
+    })
+  })
+
+  const data = await response.json() as any;
+  return data.json_output;
+
+}
+
 app.post('/submit_transaction', async (c) => {
   const body = await c.req.json()
   try {
-    const request = new RetellRequest(body)
-    const transactionDetails = request.getTransactionDetails()
-    
-    console.log('Call ID:', request.callId)
+    console.log('Body:', body)
+    const transactionDetails = await parseTransactionDetails(body)
     console.log('Transaction Details:', transactionDetails)
-    
-    if (!transactionDetails) {
-      return c.json({ 
-        error: 'No transaction details provided',
-      }, 400)
+
+    let tx_hash = ""
+    let booking_id = uuidv4() // Generate a UUID for the booking for now. In the end we should have retrive this from the DB when inserting
+
+    // create / update / delete 
+    if(transactionDetails.action === 'create' || true) {
+      // send transaction to the owner wallet
+      let amount = "0.00004896" // an arbitrary amount
+      const tx = await executeTransfer(c.var.sql, transactionDetails.user_wallet, owner_wallet, amount)
+  
+      console.log('Transaction:', tx)
+      tx_hash = tx
     }
+
+    // Example of transaction details:
+    // Transaction Details: {
+    //   user_wallet: '0xcafe',
+    //   user_phone: 12345678,
+    //   date: '2023-10-27',
+    //   time: '1000',
+    //   action: 'create',
+    //   reference_id: '',
+    //   remark: 'Hair dye service with red color'
+    // }
     
     // Return response including the transaction details
     return c.json({
       response: {
-        transaction_id: '9876543210',
-        transaction_remarks: 'Transaction successful',
-        query_processed: transactionDetails.query,
-        execution_message: transactionDetails.executionMessage
+        id: booking_id,
+        tx_hash: tx_hash ? tx_hash : "",
+        // query_processed: transactionDetails.query,
+        // execution_message: transactionDetails.executionMessage
       },
     })
   } catch (error) {
