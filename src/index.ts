@@ -9,6 +9,7 @@ import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { createWalletClient, http, parseEther } from "viem";
 import { baseSepolia } from "viem/chains";
 import { timeout } from 'hono/timeout'
+import { RetellRequest } from './types/RetellRequest'
 
 
 
@@ -96,8 +97,133 @@ app.post('/transfers', timeout(30000), async (c) => {
   return c.json({ tx })
 })
 
-// app.use('/wallets/:wallet/*', agentMiddleware)
+app.post('/get_user_info', async (c) => {
+  const body = await c.req.json()
+  const request = new RetellRequest(body)
+  return c.json({
+    user_name: 'Yao'
+  })
+})
 
+
+app.post('/get_available_slots', async (c) => {
+  const body = await c.req.json()
+  const type = await c.req.query('type')
+
+  try {
+    const request = new RetellRequest(body)
+    
+    console.log('Call ID:', request.callId)
+    console.log('Query:', request.query)
+    console.log('Dynamic Variables:', request.dynamicVariables)
+    console.log('Call Type:', request.callType)
+    console.log('Name:', request.name)
+
+    // return a dummy response, natural language response
+    return c.json({
+      response: `Available slots are 10am and 11am`,
+    })
+  } catch (error) {
+    return c.json({ 
+      error: 'Invalid request format', 
+      details: error instanceof Error ? error.message : 'Unknown error' 
+    }, 400)
+  }
+})
+
+// app.post('/create_appointment', async (c) => {
+//   const body = await c.req.json()
+//   const request = new RetellRequest(body)
+
+//   // the query is in natural language
+//   // example: User would like to book an appointment with Dr. John Doe on 2025-02-03 at 10am.
+//   // extraction will need to occurs somewhere here.
+
+
+//   // dummy response
+//   return c.json({
+//     response: {
+//       appointment_id: '1234567890',
+//       appointment_remarks: 'successfully created appointment',
+//     },
+//   })
+// })
+
+// app.post('/edit_appointment', async (c) => {
+//   const body = await c.req.json()
+//   const request = new RetellRequest(body)
+
+//   // the query is in natural language
+//   // example: User would like to edit the appointment with Dr. John Doe on 2025-02-03 at 10am to 2025-02-04 at 11am.
+//   // extraction will need to occur somewhere here.
+
+//   // dummy response
+//   return c.json({
+//     response: {
+//       appointment_id: '1234567890',
+//       appointment_remarks: 'successfully edited appointment',
+//     },
+//   })
+// })
+
+app.post('/get_user_appointment', async (c) => {
+  const body = await c.req.json()
+  try {
+    const request = new RetellRequest(body)
+    
+    console.log('Call ID:', request.callId) // Always available
+    console.log('Query:', request.query ?? 'No query provided')
+    console.log('Args:', request.args ?? {})
+    
+    // return dummy response
+    return c.json({
+      response: {
+        appointment_id: '1234567890',
+        appointment_date: '2025-02-03',
+        appointment_time: '10:00 AM',
+        appointment_remarks: 'Appointment confirmed',
+      },
+    })
+  } catch (error) {
+    return c.json({ 
+      error: 'Invalid request format', 
+      details: error instanceof Error ? error.message : 'Unknown error' 
+    }, 400)
+  }
+})
+
+app.post('/submit_transaction', async (c) => {
+  const body = await c.req.json()
+  try {
+    const request = new RetellRequest(body)
+    console.log('body', body)
+    
+    console.log('Call ID:', request.callId) // Always available
+    console.log('Query:', request.query ?? 'No query provided')
+    console.log('Args:', request.args ?? {})
+
+    // example: 'The user would like to cancel the appointment with ID 9876543210.'
+    // example: 'The user would like to book a new appointment for a haircut tomorrow at 10:00 AM with no additional remarks.'
+    
+    // return dummy response
+    return c.json({
+      response: {
+        transaction_id: '9876543210',
+        transaction_remarks: 'Transaction successful',
+        // refund_amount: '100',
+        // refund_remarks: 'Refund successful',
+      },
+    })
+  } catch (error) {
+    return c.json({ 
+      error: 'Invalid request format', 
+      details: error instanceof Error ? error.message : 'Unknown error' 
+    }, 400)
+  }
+})
+
+
+// app.use('/wallets/:wallet/*', agentMiddleware)
 // app.post('/wallets/:wallet/messages', async (c) => {
 //   const address = c.req.param('wallet')
 //   const agent = c.get('agent')
