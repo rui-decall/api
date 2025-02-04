@@ -18,42 +18,52 @@ export const retellRequestSchema = z.object({
 
 export type RetellRequestType = z.infer<typeof retellRequestSchema>
 
+interface Call {
+  call_id: string;
+  retell_llm_dynamic_variables?: Record<string, any>;
+  latency?: Record<string, any>;
+  opt_out_sensitive_data_storage?: boolean;
+  call_type?: string;
+}
+
+interface TransactionArgs {
+  transaction: {
+    query: string;
+    execution_message: string;
+  }
+}
+
 export class RetellRequest {
-  private data: RetellRequestType
+  callId: string;
+  dynamicVariables?: Record<string, any>;
+  query?: string;
+  callType?: string;
+  name?: string;
+  args?: TransactionArgs | Record<string, any>;
 
-  constructor(requestBody: unknown) {
-    const result = retellRequestSchema.safeParse(requestBody)
-    if (!result.success) {
-      throw new Error(`Invalid request format: ${JSON.stringify(result.error.format())}`)
+  constructor(body: {
+    call: Call;
+    name?: string;
+    args?: TransactionArgs | Record<string, any>;
+  }) {
+    if (!body.call?.call_id) {
+      throw new Error('Call ID is required');
     }
-    this.data = result.data
+
+    this.callId = body.call.call_id;
+    this.dynamicVariables = body.call.retell_llm_dynamic_variables;
+    this.callType = body.call.call_type;
+    this.name = body.name;
+    this.args = body.args;
   }
 
-  get callId(): string {
-    return this.data.call.call_id
-  }
-
-  get query(): string | undefined {
-    return this.data.args?.query
-  }
-
-  get dynamicVariables(): Record<string, any> | undefined {
-    return this.data.call.retell_llm_dynamic_variables
-  }
-
-  get callType(): string | undefined {
-    return this.data.call.call_type
-  }
-
-  get name(): string | undefined {
-    return this.data.name
-  }
-
-  get args(): Record<string, unknown> | undefined {
-    return this.data.args
-  }
-
-  get rawData(): RetellRequestType {
-    return this.data
+  getTransactionDetails(): { query: string; executionMessage: string } | null {
+    if (this.args && 'transaction' in this.args) {
+      return {
+        query: this.args.transaction.query,
+        executionMessage: this.args.transaction.execution_message
+      };
+    }
+    return null;
   }
 } 

@@ -108,7 +108,6 @@ app.post('/get_user_info', async (c) => {
 
 app.post('/get_available_slots', async (c) => {
   const body = await c.req.json()
-  const type = await c.req.query('type')
 
   try {
     const request = new RetellRequest(body)
@@ -196,22 +195,24 @@ app.post('/submit_transaction', async (c) => {
   const body = await c.req.json()
   try {
     const request = new RetellRequest(body)
-    console.log('body', body)
+    const transactionDetails = request.getTransactionDetails()
     
-    console.log('Call ID:', request.callId) // Always available
-    console.log('Query:', request.query ?? 'No query provided')
-    console.log('Args:', request.args ?? {})
-
-    // example: 'The user would like to cancel the appointment with ID 9876543210.'
-    // example: 'The user would like to book a new appointment for a haircut tomorrow at 10:00 AM with no additional remarks.'
+    console.log('Call ID:', request.callId)
+    console.log('Transaction Details:', transactionDetails)
     
-    // return dummy response
+    if (!transactionDetails) {
+      return c.json({ 
+        error: 'No transaction details provided',
+      }, 400)
+    }
+    
+    // Return response including the transaction details
     return c.json({
       response: {
         transaction_id: '9876543210',
         transaction_remarks: 'Transaction successful',
-        // refund_amount: '100',
-        // refund_remarks: 'Refund successful',
+        query_processed: transactionDetails.query,
+        execution_message: transactionDetails.executionMessage
       },
     })
   } catch (error) {
