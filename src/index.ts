@@ -1,9 +1,9 @@
-import 'dotenv/config'
+// import 'dotenv/config'
 import { HumanMessage } from "@langchain/core/messages";
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { cors } from 'hono/cors'
-import { HonoSchema, agentMiddleware, postgresMiddleware } from './middleware'
+import { HonoSchema, postgresMiddleware } from './middleware'
 import { serve } from '@hono/node-server'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { createWalletClient, http, parseEther } from "viem";
@@ -88,7 +88,7 @@ app.post('/transfers', timeout(30000), async (c) => {
   return c.json({ tx })
 })
 
-app.use('/wallets/:wallet/*', agentMiddleware)
+// app.use('/wallets/:wallet/*', agentMiddleware)
 
 // app.post('/wallets/:wallet/messages', async (c) => {
 //   const address = c.req.param('wallet')
