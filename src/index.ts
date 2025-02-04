@@ -41,11 +41,20 @@ app.post('/phones/:phone/wallets', async (c) => {
 
 app.get('/phones/:phone/wallets', async (c) => {
   const phone = c.req.param('phone')
+  console.log('hi')
   const sql = c.var.sql
 
-  const wallets = await sql`SELECT * FROM wallets WHERE phone = ${phone}`
+  const wallets = await sql<{
+    address: string
+    phone: string
+  }[]>`SELECT address, phone FROM wallets WHERE phone = ${phone}`
+  if (wallets.length === 0) {
+    return c.json({ error: 'Wallet not found' }, 404)
+  }
 
-  return c.json({ wallets })
+  const wallet = wallets[0]
+
+  return c.json({ wallet })
 })
 
 app.post('/transfers', timeout(30000), async (c) => {
