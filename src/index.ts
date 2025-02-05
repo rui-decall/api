@@ -263,18 +263,42 @@ app.post('/get_user_appointment', async (c) => {
     console.log('Call ID:', request.callId) // Always available
     console.log('Query:', request.query ?? 'No query provided')
     console.log('Args:', request.args ?? {})
-    
+
+    const phoneNumber = request.dynamicVariables?.user_phone;
+    const supabase = createClient(c.env.SUPABASE_URL!, c.env.SUPABASE_ANON_KEY!)
+
+    const { data: user, error: user_error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('phone_number', phoneNumber)
+      .single()
+
+    if(user_error) {
+      return c.json({ error: user_error.message }, 400)
+    }
+
+    const { data: bookings, error: booking_error } = await supabase
+      .from('bookings')
+      .select('*')
+      .eq('user_id', user.id)
+
+    if(booking_error) {
+      return c.json({ error: booking_error.message }, 400)
+    }
+
     // return dummy response
     return c.json({
-      response: {
-        appointment_id: '1234567890',
-        appointment_date: '2025-02-03',
-        appointment_time: '10:00 AM',
-        appointment_remarks: 'Appointment confirmed',
-      },
+      // response: {
+      //   appointment_id: '1234567890',
+      //   appointment_date: '2025-02-03',
+      //   appointment_time: '10:00 AM',
+      //   appointment_remarks: 'Appointment confirmed',
+      // },
+      response: bookings
     })
   } catch (error) {
     return c.json({ 
+
       error: 'Invalid request format', 
       details: error instanceof Error ? error.message : 'Unknown error' 
     }, 400)
@@ -309,8 +333,8 @@ app.post('/submit_transaction', async (c) => {
   const body = await c.req.json()
   try {
     console.log('Body:', body)
-    // const transactionDetails = await parseTransactionDetails(body)
-    // console.log('Transaction Details:', transactionDetails)
+    const transactionDetails = await parseTransactionDetails(body)
+    console.log('Transaction Details:', transactionDetails)
 
     // Example of transaction details:
     // Transaction Details: {
@@ -323,15 +347,15 @@ app.post('/submit_transaction', async (c) => {
     //   remark: 'Hair dye service with red color'
     // }
 
-    const transactionDetails = {
-      "user_wallet": "0xcafe",
-      "user_phone": 60123456789,
-      "date": "2023-10-27",
-      "time": "1000",
-      "action": "create",
-      "reference_id": "",
-      "remark": "Hair dye service with red color"
-    }
+    // const transactionDetails = {
+    //   "user_wallet": "0xcafe",
+    //   "user_phone": 60123456789,
+    //   "date": "2023-10-27",
+    //   "time": "1000",
+    //   "action": "create",
+    //   "reference_id": "",
+    //   "remark": "Hair dye service with red color"
+    // }
 
     let tx_hash = ""
     let booking_id = uuidv4() // Generate a UUID for the booking for now. In the end we should have retrive this from the DB when inserting
@@ -373,19 +397,18 @@ app.post('/submit_transaction', async (c) => {
       return c.json({ error: booking_error.message }, 400)
     }
 
-
     console.log('Bookings:', bookings)
 
 
 
-    // // create / update / delete 
+    // create / update / delete 
 
-    // if(transactionDetails.action === 'create' || true) {
-    //   // send transaction to the owner wallet
-    //   const tx = await executeTransfer(c.var.sql, transactionDetails.user_wallet, owner_wallet, amount)
-    //   console.log('Transaction:', tx)
-    //   tx_hash = tx
-    // }
+    if(transactionDetails.action === 'create' || true) {
+      // send transaction to the owner wallet
+      const tx = await executeTransfer(c.var.sql, transactionDetails.user_wallet, owner_wallet, amount)
+      console.log('Transaction:', tx)
+      tx_hash = tx
+    }
 
 
     
