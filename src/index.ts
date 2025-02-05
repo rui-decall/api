@@ -11,6 +11,7 @@ import { baseSepolia } from "viem/chains";
 import { timeout } from 'hono/timeout'
 import { RetellRequest } from './types/RetellRequest'
 import { v4 as uuidv4 } from 'uuid';
+import { createClient } from '@supabase/supabase-js'
 
 const owner_wallet = "0xCaFE1246df2B91336A87b655247Bd91086632518"
 import abi from "./abi.json";
@@ -308,8 +309,8 @@ app.post('/submit_transaction', async (c) => {
   const body = await c.req.json()
   try {
     console.log('Body:', body)
-    const transactionDetails = await parseTransactionDetails(body)
-    console.log('Transaction Details:', transactionDetails)
+    // const transactionDetails = await parseTransactionDetails(body)
+    // console.log('Transaction Details:', transactionDetails)
 
     // Example of transaction details:
     // Transaction Details: {
@@ -322,18 +323,69 @@ app.post('/submit_transaction', async (c) => {
     //   remark: 'Hair dye service with red color'
     // }
 
+    const transactionDetails = {
+      "user_wallet": "0xcafe",
+      "user_phone": 60123456789,
+      "date": "2023-10-27",
+      "time": "1000",
+      "action": "create",
+      "reference_id": "",
+      "remark": "Hair dye service with red color"
+    }
+
     let tx_hash = ""
     let booking_id = uuidv4() // Generate a UUID for the booking for now. In the end we should have retrive this from the DB when inserting
+    let amount = "0.00004896" // an arbitrary amount
+    const seller_id = "d5ec1a04-ac81-4417-bf6a-801dd6883028" // seller hardcoded id
 
-    // create / update / delete 
-    if(transactionDetails.action === 'create' || true) {
-      // send transaction to the owner wallet
-      let amount = "0.00004896" // an arbitrary amount
-      const tx = await executeTransfer(c.var.sql, transactionDetails.user_wallet, owner_wallet, amount)
-  
-      console.log('Transaction:', tx)
-      tx_hash = tx
+    const supabase = createClient(c.env.SUPABASE_URL!, c.env.SUPABASE_ANON_KEY!)
+
+    const { data: user, error: user_error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('phone_number', transactionDetails.user_phone)
+      .single()
+
+    if(user_error) {
+      return c.json({ error: user_error.message }, 400)
     }
+
+
+
+    const bookingData = {
+      id: booking_id,
+      user_id: user.id,
+      from_time: `${transactionDetails.time.substring(0, 2)}:${transactionDetails.time.substring(2, 4)}:00`,
+      to_time: `${Number(transactionDetails.time.substring(0, 2)) + 1}:${transactionDetails.time.substring(2, 4)}:00`,
+      booking_date: transactionDetails.date,
+      status: 'pending',
+      remark: transactionDetails.remark,
+      seller_id: seller_id,
+      amount: amount
+    }
+    console.log('Booking Data:', bookingData)
+    const { data: bookings, error: booking_error } = await supabase
+      .from('bookings')
+      .insert(bookingData)
+      .select()
+
+    if(booking_error) {
+      return c.json({ error: booking_error.message }, 400)
+    }
+
+
+    console.log('Bookings:', bookings)
+
+
+
+    // // create / update / delete 
+
+    // if(transactionDetails.action === 'create' || true) {
+    //   // send transaction to the owner wallet
+    //   const tx = await executeTransfer(c.var.sql, transactionDetails.user_wallet, owner_wallet, amount)
+    //   console.log('Transaction:', tx)
+    //   tx_hash = tx
+    // }
 
 
     

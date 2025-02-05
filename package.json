@@ -16,6 +16,7 @@
     "@langchain/langgraph": "^0.2.21",
     "@langchain/langgraph-checkpoint-postgres": "^0.0.3",
     "@langchain/openai": "^0.3.14",
+    "@supabase/supabase-js": "^2.48.1",
     "dotenv": "^16.4.5",
     "hono": "^4.6.20",
     "postgres": "^3.4.5",
