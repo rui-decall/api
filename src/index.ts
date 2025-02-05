@@ -339,14 +339,27 @@ app.post('/webhook/coinbase/commerce', async (c) => {
   console.log('metadata:', body.event.data.metadata)
   console.log('id:', body.id)
   console.log('type:', body.event.type)
-  if (body.event.type === 'charge.created') {
-    await c.var.sql`
-    UPDATE bookings SET cb_commerce_id = ${body.id}, cb_commerce_status = ${body.event.type}, cb_commerce_event = ${body.event} WHERE id = ${body.event.data.metadata.booking_id}
-    `
-  } else {
-    await c.var.sql`
-    UPDATE bookings SET cb_commerce_status = ${body.event.type}, cb_commerce_event = ${body.event} WHERE id = ${body.event.data.metadata.booking_id}
-    `
+  switch (body.event.type) {
+    case 'charge.created':
+      await c.var.sql`
+      UPDATE bookings SET cb_commerce_logs = ${body.event} WHERE id = ${body.event.data.metadata.booking_id}
+      `
+      break;
+    case "charge:pending":
+      await c.var.sql`
+      UPDATE bookings SET status = 'confirmed', cb_commerce_logs = ${body.event} WHERE id = ${body.event.data.metadata.booking_id}
+      `
+      break;
+    case 'charge.confirmed':
+      await c.var.sql`
+      UPDATE bookings SET cb_commerce_logs = ${body.event} WHERE id = ${body.event.data.metadata.booking_id}
+      `
+      break;
+    case 'charge.failed':
+      await c.var.sql`
+      UPDATE bookings SET cb_commerce_logs = ${body.event} WHERE id = ${body.event.data.metadata.booking_id}
+      `
+      break;
   }
   return c.json({ ok: true })
 })
