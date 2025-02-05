@@ -1,20 +1,15 @@
 // import 'dotenv/config'
-import { HumanMessage } from "@langchain/core/messages";
 import { Hono } from 'hono'
-import { z } from 'zod'
 import { cors } from 'hono/cors'
 import { HonoSchema, postgresMiddleware } from './middleware'
-import { serve } from '@hono/node-server'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
-import { createPublicClient, createWalletClient, http, parseEther } from "viem";
-import { baseSepolia } from "viem/chains";
-import { timeout } from 'hono/timeout'
+import { base } from "viem/chains";
 import { RetellRequest } from './types/RetellRequest'
 import { v4 as uuidv4 } from 'uuid';
 import { createClient } from '@supabase/supabase-js'
 
 const owner_wallet = "0xCaFE1246df2B91336A87b655247Bd91086632518"
-import abi from "./abi.json";
+import { Booking, createAndPayCharge, User } from "./util";
 
 
 const app = new Hono<HonoSchema>()
@@ -29,17 +24,21 @@ app.post('/phones/:phone/wallets', async (c) => {
     return c.json({ error: 'Phone is required' }, 400)
   }
 
+  const body = await c.req.json()
+  const name = body.name
+
   const sql = c.var.sql
   const privateKey = generatePrivateKey()
   const address = privateKeyToAccount(privateKey).address
 
   const wallet = {
-    address,
+    wallet_address: address,
     private_key: privateKey,
-    phone,
+    phone_number: phone,
+    name,
   }
 
-  await sql`INSERT INTO wallets ${sql(wallet)}`
+  await sql`INSERT INTO users ${sql(wallet)}`
 
   return c.json({ address })
 })
@@ -49,9 +48,10 @@ app.get('/phones/:phone/wallets', async (c) => {
   const sql = c.var.sql
 
   const wallets = await sql<{
-    address: string
-    phone: string
-  }[]>`SELECT address, phone FROM users WHERE phone = ${phone}`
+    wallet_address: string
+    phone_number: string
+    name: string
+  }[]>`SELECT wallet_address, phone_number, name FROM users WHERE phone_number = ${phone}`
   if (wallets.length === 0) {
     return c.json({ error: 'Wallet not found' }, 404)
   }
@@ -62,61 +62,49 @@ app.get('/phones/:phone/wallets', async (c) => {
 })
 
 async function executeTransfer(
-  sql: any,
-  fromAddress: string,
-  toAddress: string,
-  amount: string
+  rpc_url: string,
+  fromWallet: User,
+  booking: Booking
 ) {
-  const fromWallet = await sql<{
-    address: string
-    private_key: string
-  }[]>`SELECT * FROM wallets WHERE address = ${fromAddress}`
-    .then((res: any) => res.length > 0 && res[0])
 
-  if (!fromWallet) {
-    throw new Error('From wallet not found')
-  }
-
-  const account = privateKeyToAccount(fromWallet.private_key as `0x${string}`)
-  const client = createWalletClient({
-    account,
-    chain: baseSepolia,
-    transport: http(),
-  })
+  const tx = await createAndPayCharge(
+    booking.id,
+    `Decall Checkout`,
+    ``,
+    booking.amount,
+    rpc_url,
+    base.id,
+    fromWallet
+  )
   
-  const tx = await client.sendTransaction({
-    to: toAddress as `0x${string}`,
-    value: parseEther(amount),
-  })
-
   return tx
 }
 
-app.post('/transfers', timeout(30000), async (c) => {
-  const body = await c.req.json()
+// app.post('/transfers', timeout(30000), async (c) => {
+//   const body = await c.req.json()
 
-  const { data, error } = z.object({
-    from_address: z.string(),
-    to_address: z.string(),
-    amount: z.string(),
-  })
-    .safeParse(body)
+//   const { data, error } = z.object({
+//     from_address: z.string(),
+//     to_address: z.string(),
+//     amount: z.string(),
+//   })
+//     .safeParse(body)
 
-  if (!data) {
-    return c.json({ error: error.format() }, 400)
-  }
+//   if (!data) {
+//     return c.json({ error: error.format() }, 400)
+//   }
 
-  const { from_address, to_address, amount } = data
+//   const { from_address, to_address, amount } = data
   
-  try {
-    const tx = await executeTransfer(c.var.sql, from_address, to_address, amount)
-    return c.json({ tx })
-  } catch (error) {
-    return c.json({ 
-      error: error instanceof Error ? error.message : 'Unknown error' 
-    }, 400)
-  }
-})
+//   try {
+//     const tx = await executeTransfer(c.var.sql, from_address, to_address, amount)
+//     return c.json({ tx })
+//   } catch (error) {
+//     return c.json({ 
+//       error: error instanceof Error ? error.message : 'Unknown error' 
+//     }, 400)
+//   }
+// })
 
 app.post('/get_user_info', async (c) => {
   const body = await c.req.json()
@@ -127,71 +115,71 @@ app.post('/get_user_info', async (c) => {
   })
 })
 
-app.post('/bookings/:booking_id/payments', timeout(30000), async (c) => {
-  const bookingId = c.req.param('booking_id')
-  const body = await c.req.json()
+// app.post('/bookings/:booking_id/payments', timeout(30000), async (c) => {
+//   const bookingId = c.req.param('booking_id')
+//   const body = await c.req.json()
 
-  const { data, error } = z.object({
-    payer: z.string(),
-    amount: z.string(),
-  })
-    .safeParse(body)
+//   const { data, error } = z.object({
+//     payer: z.string(),
+//     amount: z.string(),
+//   })
+//     .safeParse(body)
 
-  if (!data) {
-    return c.json({ error: error.format() }, 400)
-  }
+//   if (!data) {
+//     return c.json({ error: error.format() }, 400)
+//   }
 
-  const { payer, amount } = data
-  const payerWallet = await c.var.sql<{
-    address: string
-    private_key: string
-  }[]>`SELECT * FROM wallets WHERE address = ${payer}`
-    .then(res => res.length > 0 && res[0])
+//   const { payer, amount } = data
+//   const payerWallet = await c.var.sql<{
+//     address: string
+//     private_key: string
+//   }[]>`SELECT * FROM wallets WHERE address = ${payer}`
+//     .then(res => res.length > 0 && res[0])
 
-  if (!payerWallet) {
-    return c.json({ error: 'From wallet not found' }, 400)
-  }
+//   if (!payerWallet) {
+//     return c.json({ error: 'From wallet not found' }, 400)
+//   }
 
-  const booking = await c.var.sql<{
-    seller: string
-  }[]>`
-  SELECT *, sellers.wallet_address "seller" FROM bookings 
-  JOIN sellers ON bookings.seller_id = sellers.id
-  WHERE id = ${bookingId}`
-    .then(res => res.length > 0 && res[0])
+//   const booking = await c.var.sql<{
+//     seller: string
+//   }[]>`
+//   SELECT *, sellers.wallet_address "seller" FROM bookings 
+//   JOIN sellers ON bookings.seller_id = sellers.id
+//   WHERE id = ${bookingId}`
+//     .then(res => res.length > 0 && res[0])
 
-  if (!booking) {
-    return c.json({ error: 'Booking not found' }, 400)
-  }
+//   if (!booking) {
+//     return c.json({ error: 'Booking not found' }, 400)
+//   }
 
-  const seller = booking.seller
+//   const seller = booking.seller
 
-  const account = privateKeyToAccount(payerWallet.private_key as `0x${string}`)
+//   const account = privateKeyToAccount(payerWallet.private_key as `0x${string}`)
 
-  const publicClient = createPublicClient({
-    chain: baseSepolia,
-    transport: http(c.env.RPC_URL),
-  })
+//   const publicClient = createPublicClient({
+//     chain: baseSepolia,
+//     transport: http(c.env.RPC_URL),
+//   })
 
-  const client = createWalletClient({
-    account,
-    chain: baseSepolia,
-    transport: http(c.env.RPC_URL),
-  })
+//   const client = createWalletClient({
+//     account,
+//     chain: baseSepolia,
+//     transport: http(c.env.RPC_URL),
+//   })
 
 
-  const { request, result } = await publicClient.simulateContract({
-    abi: abi,
-    address: c.env.CONTRACT_ADDRESS as `0x${string}`,
-    functionName: "book",
-    args: [seller, parseEther(amount), bookingId],
-    value: parseEther(amount)
-  })
+//   const { request, result } = await publicClient.simulateContract({
+//     abi: abi,
+//     address: c.env.CONTRACT_ADDRESS as `0x${string}`,
+//     functionName: "book",
+//     args: [seller, parseEther(amount), bookingId],
+//     value: parseEther(amount)
+//   })
 
-  const hash = await client.writeContract(request)
+//   const hash = await client.writeContract(request)
 
-  return c.json({ tx: hash })
-})
+//   return c.json({ tx: hash })
+// })
 
 // app.use('/wallets/:wallet/*', agentMiddleware)
 
@@ -374,8 +362,7 @@ app.post('/submit_transaction', async (c) => {
     // }
 
     let tx_hash = ""
-    let booking_id = uuidv4() // Generate a UUID for the booking for now. In the end we should have retrive this from the DB when inserting
-    let amount = "0.00004896" // an arbitrary amount
+    let amount = "0.001" // an arbitrary amount
     const seller_id = "d5ec1a04-ac81-4417-bf6a-801dd6883028" // seller hardcoded id
 
     const supabase = createClient(c.env.SUPABASE_URL!, c.env.SUPABASE_ANON_KEY!)
@@ -384,16 +371,13 @@ app.post('/submit_transaction', async (c) => {
       .from('users')
       .select('*')
       .eq('phone_number', transactionDetails.user_phone)
-      .single()
+      .single<User>()
 
     if(user_error) {
       return c.json({ error: user_error.message }, 400)
     }
 
-
-
     const bookingData = {
-      id: booking_id,
       user_id: user.id,
       from_time: `${transactionDetails.time.substring(0, 2)}:${transactionDetails.time.substring(2, 4)}:00`,
       to_time: `${Number(transactionDetails.time.substring(0, 2)) + 1}:${transactionDetails.time.substring(2, 4)}:00`,
@@ -404,16 +388,17 @@ app.post('/submit_transaction', async (c) => {
       amount: amount
     }
     console.log('Booking Data:', bookingData)
-    const { data: bookings, error: booking_error } = await supabase
+    const { data: booking, error: booking_error } = await supabase
       .from('bookings')
       .insert(bookingData)
       .select()
+      .single<Booking>()
 
     if(booking_error) {
       return c.json({ error: booking_error.message }, 400)
     }
 
-    console.log('Bookings:', bookings)
+    console.log('Bookings:', booking)
 
 
 
@@ -421,7 +406,8 @@ app.post('/submit_transaction', async (c) => {
 
     if(transactionDetails.action === 'create' || true) {
       // send transaction to the owner wallet
-      const tx = await executeTransfer(c.var.sql, transactionDetails.user_wallet, owner_wallet, amount)
+      const tx = await executeTransfer(c.env.RPC_URL, user, booking)
+      
       console.log('Transaction:', tx)
       tx_hash = tx
     }
@@ -431,7 +417,7 @@ app.post('/submit_transaction', async (c) => {
     // Return response including the transaction details
     return c.json({
       response: {
-        id: booking_id,
+        id: booking.id,
         tx_hash: tx_hash ? tx_hash : "",
         // query_processed: transactionDetails.query,
         // execution_message: transactionDetails.executionMessage

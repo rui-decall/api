@@ -114,6 +114,8 @@ export type HonoSchema = {
     NETWORK_ID: string
     RPC_URL: string
     CONTRACT_ADDRESS: string
+    SUPABASE_URL: string
+    SUPABASE_ANON_KEY: string
     // JWT_SECRET: string
     // INFERENCE_URL: string
     // UPSTASH_REDIS_REST_URL: string
