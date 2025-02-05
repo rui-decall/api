@@ -76,7 +76,7 @@ async function executeTransfer(
     base.id,
     fromWallet
   )
-  
+
   return tx
 }
 
@@ -95,7 +95,7 @@ async function executeTransfer(
 //   }
 
 //   const { from_address, to_address, amount } = data
-  
+
 //   try {
 //     const tx = await executeTransfer(c.var.sql, from_address, to_address, amount)
 //     return c.json({ tx })
@@ -109,7 +109,7 @@ async function executeTransfer(
 app.post('/get_user_info', async (c) => {
   const body = await c.req.json()
   console.log('body', body)
-  
+
   return c.json({
     user_name: 'Yao'
   })
@@ -189,7 +189,7 @@ app.post('/get_available_slots', async (c) => {
 
   try {
     const request = new RetellRequest(body)
-    
+
     console.log('Call ID:', request.callId)
     console.log('Query:', request.query)
     console.log('Dynamic Variables:', request.dynamicVariables)
@@ -217,9 +217,9 @@ app.post('/get_available_slots', async (c) => {
       response: resp
     })
   } catch (error) {
-    return c.json({ 
-      error: 'Invalid request format', 
-      details: error instanceof Error ? error.message : 'Unknown error' 
+    return c.json({
+      error: 'Invalid request format',
+      details: error instanceof Error ? error.message : 'Unknown error'
     }, 400)
   }
 })
@@ -263,7 +263,7 @@ app.post('/get_user_appointment', async (c) => {
   const body = await c.req.json()
   try {
     const request = new RetellRequest(body)
-    
+
     console.log('Call ID:', request.callId) // Always available
     console.log('Query:', request.query ?? 'No query provided')
     console.log('Args:', request.args ?? {})
@@ -277,7 +277,7 @@ app.post('/get_user_appointment', async (c) => {
       .eq('phone_number', phoneNumber)
       .single()
 
-    if(user_error) {
+    if (user_error) {
       return c.json({ error: user_error.message }, 400)
     }
 
@@ -286,7 +286,7 @@ app.post('/get_user_appointment', async (c) => {
       .select('*')
       .eq('user_id', user.id)
 
-    if(booking_error) {
+    if (booking_error) {
       return c.json({ error: booking_error.message }, 400)
     }
 
@@ -301,15 +301,15 @@ app.post('/get_user_appointment', async (c) => {
       response: bookings
     })
   } catch (error) {
-    return c.json({ 
+    return c.json({
 
-      error: 'Invalid request format', 
-      details: error instanceof Error ? error.message : 'Unknown error' 
+      error: 'Invalid request format',
+      details: error instanceof Error ? error.message : 'Unknown error'
     }, 400)
   }
 })
 
-const parseTransactionDetails =  async (body: any) => {
+const parseTransactionDetails = async (body: any) => {
 
   const response = await fetch('https://run.nodegen.fun/execute/workflow/ae9cd542-92d8-4c60-9c6d-7a7506eb61bd', {
     method: 'POST',
@@ -332,6 +332,24 @@ const parseTransactionDetails =  async (body: any) => {
   return data.json_output;
 
 }
+
+app.post('/webhook/coinbase/commerce', async (c) => {
+  const body = await c.req.json()
+
+  console.log('metadata:', body.event.data.metadata)
+  console.log('id:', body.id)
+  console.log('type:', body.event.type)
+  if (body.event.type === 'charge.created') {
+    await c.var.sql`
+    UPDATE bookings SET cb_commerce_id = ${body.id}, cb_commerce_status = ${body.event.type}, cb_commerce_event = ${body.event} WHERE id = ${body.event.data.metadata.booking_id}
+    `
+  } else {
+    await c.var.sql`
+    UPDATE bookings SET cb_commerce_status = ${body.event.type}, cb_commerce_event = ${body.event} WHERE id = ${body.event.data.metadata.booking_id}
+    `
+  }
+  return c.json({ ok: true })
+})
 
 app.post('/submit_transaction', async (c) => {
   const body = await c.req.json()
@@ -373,7 +391,7 @@ app.post('/submit_transaction', async (c) => {
       .eq('phone_number', transactionDetails.user_phone)
       .single<User>()
 
-    if(user_error) {
+    if (user_error) {
       return c.json({ error: user_error.message }, 400)
     }
 
@@ -394,7 +412,7 @@ app.post('/submit_transaction', async (c) => {
       .select()
       .single<Booking>()
 
-    if(booking_error) {
+    if (booking_error) {
       return c.json({ error: booking_error.message }, 400)
     }
 
@@ -404,16 +422,16 @@ app.post('/submit_transaction', async (c) => {
 
     // create / update / delete 
 
-    if(transactionDetails.action === 'create' || true) {
+    if (transactionDetails.action === 'create' || true) {
       // send transaction to the owner wallet
       const tx = await executeTransfer(c.env.RPC_URL, user, booking)
-      
+
       console.log('Transaction:', tx)
       tx_hash = tx
     }
 
 
-    
+
     // Return response including the transaction details
     return c.json({
       response: {
@@ -424,9 +442,9 @@ app.post('/submit_transaction', async (c) => {
       },
     })
   } catch (error) {
-    return c.json({ 
-      error: 'Invalid request format', 
-      details: error instanceof Error ? error.message : 'Unknown error' 
+    return c.json({
+      error: 'Invalid request format',
+      details: error instanceof Error ? error.message : 'Unknown error'
     }, 400)
   }
 })
