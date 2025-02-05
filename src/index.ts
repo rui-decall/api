@@ -208,9 +208,25 @@ app.post('/get_available_slots', async (c) => {
     console.log('Call Type:', request.callType)
     console.log('Name:', request.name)
 
+    const message = request.query;
+    const threadId = request.callId;
+    const userId = request.dynamicVariables?.user_phone;
+
+    const resp = await fetch("https://run.nodegen.fun/execute/workflow/d14edf48-c813-4c77-a41f-14ffe6f6c5e5", {
+      method: 'POST',
+      body: JSON.stringify({
+        message,
+        threadId,
+        userId
+      })
+    }).then(res => res.json())
+    console.log('Response:', resp)
+
+
     // return a dummy response, natural language response
     return c.json({
-      response: `Available slots are 10am and 11am`,
+      // response: `Available slots are 10am and 11am`,
+      response: resp
     })
   } catch (error) {
     return c.json({ 
