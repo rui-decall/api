@@ -528,12 +528,73 @@ app.post('/submit_transaction', async (c) => {
       booking = data
     } else if (transactionDetails.action === 'delete') {
       // delete the booking
+      const bookingWithSeller = await c.var.supabase.from('bookings')
+        .select('amount, status, buyer:users(wallet_address), seller:sellers(wallet_address, private_key)')
+        .eq('id', transactionDetails.reference_id)
+        .maybeSingle()
+        .then(res => {
+          if (res.error) {
+            console.log('error', res.error)
+            return null
+          }
+          return res.data as unknown as {
+            status: string
+            amount: string
+            buyer: {
+              wallet_address: string
+            }
+            seller: {
+              wallet_address: string
+              private_key: string
+            }
+          }
+        })
+
+      if (!bookingWithSeller) {
+        return c.json({ error: 'Booking not found' }, 404)
+      }
+
+      if (bookingWithSeller.status === 'cancelled') {
+        return c.json({ error: 'Booking is already cancelled' }, 400)
+      }
+
+      if (bookingWithSeller.status !== 'confirmed') {
+        return c.json({ error: 'Booking is not confirmed' }, 400)
+      }
+
+
+      const client = createWalletClient({
+        account: privateKeyToAccount(bookingWithSeller.seller.private_key as `0x${string}`),
+        chain: base,
+        transport: http(c.env.RPC_URL),
+      })
+
+      const tx = await client.sendTransaction({
+        to: bookingWithSeller.buyer.wallet_address as `0x${string}`,
+        value: parseEther(bookingWithSeller.amount.toString()),
+      })
+
+      console.log('Transaction:', tx)
+
+
+      const { data, error } = await c.var.supabase.from('bookings').update({ status: 'cancelled', cancelled_tx: tx })
+        .eq('id', transactionDetails.reference_id)
+        .select()
+        .single()
+
+      if (error) {
+        console.log('error', error)
+        return c.json({ error: "Failed to cancel booking" }, 400)
+      }
+
+      booking = data
     }
 
     return c.json({
       response: {
         id: booking?.id,
         tx_hash: tx_hash ? tx_hash : "",
+        booking: booking,
         // query_processed: transactionDetails.query,
         // execution_message: transactionDetails.executionMessage
       },
