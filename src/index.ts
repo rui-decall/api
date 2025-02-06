@@ -340,13 +340,15 @@ app.post('/get_user_appointment', async (c) => {
 
     const { data: bookings, error: booking_error } = await supabase
       .from('bookings')
-      .select('*')
+      .select('*, users(name, phone_number)')
       .eq('user_id', user.id)
       .eq('status', 'confirmed')
 
     if (booking_error) {
       return c.json({ error: booking_error.message }, 400)
     }
+
+    console.log('bookings', bookings)
 
     // return dummy response
     return c.json({
@@ -356,7 +358,17 @@ app.post('/get_user_appointment', async (c) => {
       //   appointment_time: '10:00 AM',
       //   appointment_remarks: 'Appointment confirmed',
       // },
-      response: bookings
+      count: bookings.length,
+      bookings: bookings.map(booking => ({
+        id: booking.id,
+        date: booking.booking_date,
+        from_time: booking.from_time,
+        to_time: booking.to_time,
+        remark: booking.remark,
+        user: booking.users.name,
+        phone: booking.users.phone_number
+      }))
+      // bookings
     })
   } catch (error) {
     return c.json({
