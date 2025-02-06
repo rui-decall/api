@@ -123,7 +123,7 @@ app.post('/get_user_info', async (c) => {
   //   from_number: '+60129210283',
   //   to_number: '+14197806507'
   // }
-  
+
   const sql = c.var.sql
   let number = body.from_number.replace('+', '')
 
@@ -450,7 +450,7 @@ app.post('/submit_transaction', async (c) => {
     // }
 
     let tx_hash = ""
-    let amount = "0.001" // an arbitrary amount
+    let amount = "0.01" // an arbitrary amount
     const seller_id = "d5ec1a04-ac81-4417-bf6a-801dd6883028" // seller hardcoded id
 
     const supabase = createClient(c.env.SUPABASE_URL!, c.env.SUPABASE_ANON_KEY!)
@@ -465,47 +465,73 @@ app.post('/submit_transaction', async (c) => {
       return c.json({ error: user_error.message }, 400)
     }
 
-    const bookingData = {
-      user_id: user.id,
-      from_time: `${transactionDetails.time.substring(0, 2)}:${transactionDetails.time.substring(2, 4)}:00`,
-      to_time: `${Number(transactionDetails.time.substring(0, 2)) + 1}:${transactionDetails.time.substring(2, 4)}:00`,
-      booking_date: transactionDetails.date,
-      status: 'pending',
-      remark: transactionDetails.remark,
-      seller_id: seller_id,
-      amount: amount
-    }
-    console.log('Booking Data:', bookingData)
-    const { data: booking, error: booking_error } = await supabase
-      .from('bookings')
-      .insert(bookingData)
-      .select()
-      .single<Booking>()
-
-    if (booking_error) {
-      return c.json({ error: booking_error.message }, 400)
-    }
-
-    console.log('Bookings:', booking)
 
 
+    var booking: Booking | null = null
 
     // create / update / delete 
 
-    if (transactionDetails.action === 'create' || true) {
+    if (transactionDetails.action === 'create') {
+
+      console.log('Creating booking')
+      const bookingData = {
+        user_id: user.id,
+        from_time: `${transactionDetails.time.substring(0, 2)}:${transactionDetails.time.substring(2, 4)}:00`,
+        to_time: `${Number(transactionDetails.time.substring(0, 2)) + 1}:${transactionDetails.time.substring(2, 4)}:00`,
+        booking_date: transactionDetails.date,
+        status: 'pending',
+        remark: transactionDetails.remark,
+        seller_id: seller_id,
+        amount: amount
+      }
+      console.log('Booking Data:', bookingData)
+      const { data, error: booking_error } = await supabase
+        .from('bookings')
+        .insert(bookingData)
+        .select()
+        .single<Booking>()
+
+      if (booking_error) {
+        console.log('booking_error', booking_error)
+        return c.json({ error: "Failed to create booking" }, 400)
+      }
+
+      booking = data
+      console.log('Bookings:', booking)
+
       // send transaction to the owner wallet
       const tx = await executeTransfer(c.env.RPC_URL, user, booking)
 
       console.log('Transaction:', tx)
       tx_hash = tx
+    } else if (transactionDetails.action === 'update') {
+      console.log('Updating booking')
+      // update the booking
+      const { data, error: booking_error } = await supabase
+        .from('bookings')
+        .update({
+          from_time: `${transactionDetails.time.substring(0, 2)}:${transactionDetails.time.substring(2, 4)}:00`,
+          to_time: `${Number(transactionDetails.time.substring(0, 2)) + 1}:${transactionDetails.time.substring(2, 4)}:00`,
+          booking_date: transactionDetails.date,
+          remark: transactionDetails.remark,
+        })
+        .eq('id', transactionDetails.reference_id)
+        .select()
+        .single<Booking>()
+
+      if (booking_error) {
+        console.log('booking_error', booking_error)
+        return c.json({ error: "Failed to update booking" }, 400)
+      }
+
+      booking = data
+    } else if (transactionDetails.action === 'delete') {
+      // delete the booking
     }
 
-
-
-    // Return response including the transaction details
     return c.json({
       response: {
-        id: booking.id,
+        id: booking?.id,
         tx_hash: tx_hash ? tx_hash : "",
         // query_processed: transactionDetails.query,
         // execution_message: transactionDetails.executionMessage
