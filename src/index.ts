@@ -106,12 +106,41 @@ async function executeTransfer(
 //   }
 // })
 
+interface UserInfo {
+  name: string;
+  wallet_address: string;
+  phone_number: string;
+}
+
 app.post('/get_user_info', async (c) => {
   const body = await c.req.json()
   console.log('body', body)
 
+  // example
+  // {
+  //   llm_id: 'llm_efa5cbff15063e84c19ab959455e',
+  //   from_number: '+60129210283',
+  //   to_number: '+14197806507'
+  // }
+  
+  const sql = c.var.sql
+  let number = body.from_number.replace('+', '')
+
+  const user = await sql<UserInfo[]>`
+    SELECT name, wallet_address, phone_number 
+    FROM users 
+    WHERE phone_number = ${number}`
+
+  if (user.length === 0) {
+    return c.json({ error: 'Wallet not found' }, 404)
+  }
+
+  console.log('user', user)
+
   return c.json({
-    user_name: 'Yao'
+    user_name: user[0].name,
+    wallet_address: user[0].wallet_address,
+    user_phone: user[0].phone_number
   })
 })
 
