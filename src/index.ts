@@ -502,15 +502,15 @@ app.post('/submit_transaction', async (c) => {
         console.log('booking_error', booking_error)
         return c.json({ error: "Failed to create booking" }, 400)
       }
+      transactionDetails.reference_id = data.id
       // send transaction to the owner wallet
       const tx = await executeTransfer(c.env.RPC_URL, user, data)
-
       console.log('Transaction:', tx)
       tx_hash = tx
     } else if (transactionDetails.action === 'update') {
       console.log('Updating booking')
       // update the booking
-      const { data, error: booking_error } = await supabase
+      const { error: booking_error } = await supabase
         .from('bookings')
         .update({
           from_time: `${transactionDetails.time.substring(0, 2)}:${transactionDetails.time.substring(2, 4)}:00`,
