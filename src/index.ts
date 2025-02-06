@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { HonoSchema, postgresMiddleware, supabaseMiddleware } from './middleware'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
-import { base, baseSepolia } from "viem/chains";
+import { base } from "viem/chains";
 import { RetellRequest } from './types/RetellRequest'
 import { v4 as uuidv4 } from 'uuid';
 import { createClient } from '@supabase/supabase-js'
@@ -476,8 +476,6 @@ app.post('/submit_transaction', async (c) => {
 
 
 
-    var booking: Booking | null = null
-
     // create / update / delete 
 
     if (transactionDetails.action === 'create') {
@@ -504,12 +502,8 @@ app.post('/submit_transaction', async (c) => {
         console.log('booking_error', booking_error)
         return c.json({ error: "Failed to create booking" }, 400)
       }
-
-      booking = data
-      console.log('Bookings:', booking)
-
       // send transaction to the owner wallet
-      const tx = await executeTransfer(c.env.RPC_URL, user, booking)
+      const tx = await executeTransfer(c.env.RPC_URL, user, data)
 
       console.log('Transaction:', tx)
       tx_hash = tx
@@ -533,13 +527,13 @@ app.post('/submit_transaction', async (c) => {
         return c.json({ error: "Failed to update booking" }, 400)
       }
 
-      booking = data
     } else if (transactionDetails.action === 'delete') {
       // delete the booking
+
       const bookingWithSeller = await supabase.from('bookings')
         .select('amount, status, buyer:users(wallet_address), seller:sellers(wallet_address, private_key)')
         .eq('id', transactionDetails.reference_id)
-        .maybeSingle()
+        .single()
         .then(res => {
           if (res.error) {
             console.log('error', res.error)
@@ -562,14 +556,26 @@ app.post('/submit_transaction', async (c) => {
         return c.json({ error: 'Booking not found' }, 404)
       }
 
-      if (bookingWithSeller.status === 'cancelled') {
-        return c.json({ error: 'Booking is already cancelled' }, 400)
+      switch (bookingWithSeller.status) {
+        case 'confirmed':
+          break
+        case 'cancelled':
+          return c.json({ error: 'Booking is already cancelled' }, 400)
+        case 'pending_cancel':
+          return c.json({ error: 'Booking is already pending cancel' }, 400)
+        default:
+          return c.json({ error: 'Booking is not confirmed' }, 400)
       }
 
-      if (bookingWithSeller.status !== 'confirmed') {
-        return c.json({ error: 'Booking is not confirmed' }, 400)
-      }
+      let err = await supabase.from('bookings')
+        .update({ status: 'pending_cancel' })
+        .eq('id', transactionDetails.reference_id)
+        .then(res => res.error)
 
+      if (err) {
+        console.log('err', err)
+        return c.json({ error: "Failed to cancel booking" }, 400)
+      }
 
       const client = createWalletClient({
         account: privateKeyToAccount(bookingWithSeller.seller.private_key as `0x${string}`),
@@ -581,11 +587,10 @@ app.post('/submit_transaction', async (c) => {
         to: bookingWithSeller.buyer.wallet_address as `0x${string}`,
         value: parseEther(bookingWithSeller.amount.toString()),
       })
-
       console.log('Transaction:', tx)
+      tx_hash = tx
 
-
-      const { data, error } = await supabase.from('bookings').update({ status: 'cancelled', cancelled_tx: tx })
+      const { error } = await supabase.from('bookings').update({ status: 'cancelled', cancelled_tx: tx })
         .eq('id', transactionDetails.reference_id)
         .select()
         .single()
@@ -594,15 +599,12 @@ app.post('/submit_transaction', async (c) => {
         console.log('error', error)
         return c.json({ error: "Failed to cancel booking" }, 400)
       }
-
-      booking = data
     }
 
     return c.json({
       response: {
-        id: booking?.id,
+        id: transactionDetails.reference_id,
         tx_hash: tx_hash ? tx_hash : "",
-        booking: booking,
         // query_processed: transactionDetails.query,
         // execution_message: transactionDetails.executionMessage
       },
