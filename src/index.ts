@@ -225,9 +225,28 @@ app.post('/get_available_slots', async (c) => {
     console.log('Call Type:', request.callType)
     console.log('Name:', request.name)
 
-    const message = request.query;
+    let message = request.query;
     const threadId = request.callId;
-    const userId = request.dynamicVariables?.user_phone;
+    const userPhoneNumber = request.dynamicVariables?.user_phone;
+    const bookingId = request.dynamicVariables?.reference_id;
+
+    const supabase = createClient(c.env.SUPABASE_URL!, c.env.SUPABASE_ANON_KEY!)
+
+    const { data: user, error: user_error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('phone_number', userPhoneNumber)
+      .single()
+
+    if (user_error) {
+      return c.json({ error: user_error.message }, 400)
+    }
+    const userId = user.id;
+
+    message += `\ncurrent_time: ${new Date().toISOString()}`
+    message += `\nuser_id: ${userId}`
+    message += `\nreference_variables: ${JSON.stringify(request.dynamicVariables)}`
+
 
     const resp = await fetch("https://run.nodegen.fun/execute/workflow/d14edf48-c813-4c77-a41f-14ffe6f6c5e5", {
       method: 'POST',
