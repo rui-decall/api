@@ -217,6 +217,8 @@ app.post('/get_available_slots', async (c) => {
   const body = await c.req.json()
   const type = c.req.query('type')
 
+  // console.log('body', body)
+
   try {
     const request = new RetellRequest(body)
 
@@ -240,14 +242,18 @@ app.post('/get_available_slots', async (c) => {
       .single()
 
     if (user_error) {
+      console.log('user_error', user_error)
       return c.json({ error: user_error.message }, 400)
     }
     const userId = user.id;
+    const query = body.args.query;
 
     message += `\ncurrent_time: ${new Date().toISOString()}`
     message += `\nuser_id: ${userId}`
     message += `\nreference_variables: ${JSON.stringify(request.dynamicVariables)}`
+    message += `\nquery: Get Available Slots: ${query}`
 
+    console.log('== message', message)
 
     const resp = await fetch("https://run.nodegen.fun/execute/workflow/d14edf48-c813-4c77-a41f-14ffe6f6c5e5", {
       method: 'POST',
