@@ -424,10 +424,18 @@ app.post('/webhook/coinbase/commerce', async (c) => {
 
 app.post('/submit_transaction', async (c) => {
   const body = await c.req.json()
+  let transactionDetails: any = null
   try {
     console.log('Body:', body)
-    const transactionDetails = await parseTransactionDetails(body)
+    try {
+      transactionDetails = await parseTransactionDetails(body)
+    } catch (error) {
+      console.log('error', error)
+      return c.json({ error: 'Invalid request format', details: error instanceof Error ? error.message : 'Unknown error' }, 400)
+    }
+
     console.log('Transaction Details:', transactionDetails)
+    // console.log('Transaction Details:', transactionDetails)
 
     // Example of transaction details:
     // Transaction Details: {
@@ -528,7 +536,7 @@ app.post('/submit_transaction', async (c) => {
       booking = data
     } else if (transactionDetails.action === 'delete') {
       // delete the booking
-      const bookingWithSeller = await c.var.supabase.from('bookings')
+      const bookingWithSeller = await supabase.from('bookings')
         .select('amount, status, buyer:users(wallet_address), seller:sellers(wallet_address, private_key)')
         .eq('id', transactionDetails.reference_id)
         .maybeSingle()
@@ -577,7 +585,7 @@ app.post('/submit_transaction', async (c) => {
       console.log('Transaction:', tx)
 
 
-      const { data, error } = await c.var.supabase.from('bookings').update({ status: 'cancelled', cancelled_tx: tx })
+      const { data, error } = await supabase.from('bookings').update({ status: 'cancelled', cancelled_tx: tx })
         .eq('id', transactionDetails.reference_id)
         .select()
         .single()
