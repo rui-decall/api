@@ -1,15 +1,16 @@
 // import 'dotenv/config'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { HonoSchema, postgresMiddleware } from './middleware'
+import { HonoSchema, postgresMiddleware, supabaseMiddleware } from './middleware'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
-import { base } from "viem/chains";
+import { base, baseSepolia } from "viem/chains";
 import { RetellRequest } from './types/RetellRequest'
 import { v4 as uuidv4 } from 'uuid';
 import { createClient } from '@supabase/supabase-js'
 
 const owner_wallet = "0xCaFE1246df2B91336A87b655247Bd91086632518"
 import { Booking, createAndPayCharge, User } from "./util";
+import { createWalletClient, http, parseEther } from 'viem';
 
 
 const app = new Hono<HonoSchema>()
@@ -510,6 +511,64 @@ app.post('/submit_transaction', async (c) => {
   }
 })
 
+app.put('/bookings/:booking_id/cancel', supabaseMiddleware, async (c) => {
+  const booking_id = c.req.param('booking_id')
+  const booking = await c.var.supabase.from('bookings')
+    .select('amount, status, buyer:users(wallet_address), seller:sellers(wallet_address, private_key)')
+    .eq('id', booking_id)
+    .maybeSingle()
+    .then(res => {
+      if (res.error) {
+        console.log('error', res.error)
+      }
+      return res.data as unknown as {
+        status: string
+        amount: string
+        buyer: {
+          wallet_address: string
+        }
+        seller: {
+          wallet_address: string
+          private_key: string
+        }
+      }
+    })
+
+  if (!booking) {
+    return c.json({ error: 'Booking not found' }, 404)
+  }
+
+  console.log('Booking:', booking)
+
+  if (booking.status === 'cancelled') {
+    return c.json({ error: 'Booking is already cancelled' }, 400)
+  }
+
+  if (booking.status !== 'confirmed') {
+    return c.json({ error: 'Booking is not confirmed' }, 400)
+  }
+
+
+  const client = createWalletClient({
+    account: privateKeyToAccount(booking.seller.private_key as `0x${string}`),
+    chain: base,
+    transport: http(c.env.RPC_URL),
+  })
+
+  const tx = await client.sendTransaction({
+    to: booking.buyer.wallet_address as `0x${string}`,
+    value: parseEther(booking.amount.toString()),
+  })
+
+  console.log('Transaction:', tx)
+
+
+  const { data, error } = await c.var.supabase.from('bookings').update({ status: 'cancelled', cancelled_tx: tx })
+    .eq('id', booking_id)
+    .select()
+    .single()
+  return c.json({ booking: data, error: error })
+})
 
 // app.use('/wallets/:wallet/*', agentMiddleware)
 // app.post('/wallets/:wallet/messages', async (c) => {

@@ -1,4 +1,5 @@
 
+import { createClient, SupabaseClient } from "@supabase/supabase-js"
 import { Next } from "hono"
 
 import { Context } from "hono"
@@ -8,6 +9,12 @@ import postgres from "postgres"
 
 export function postgresMiddleware(c: Context, next: Next) {
   c.set('sql', postgres(c.env.POSTGRES_URL))
+  return next()
+}
+
+export function supabaseMiddleware(c: Context, next: Next) {
+  const supabase = createClient(c.env.SUPABASE_URL!, c.env.SUPABASE_ANON_KEY!)
+  c.set('supabase', supabase)
   return next()
 }
 
@@ -122,6 +129,7 @@ export type HonoSchema = {
     // UPSTASH_REDIS_REST_TOKEN: string
   }, Variables: {
     sql: postgres.Sql
+    supabase: SupabaseClient
     agent: any
   }
 }
