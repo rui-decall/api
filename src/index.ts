@@ -342,6 +342,7 @@ app.post('/get_user_appointment', async (c) => {
       .from('bookings')
       .select('*')
       .eq('user_id', user.id)
+      .eq('status', 'confirmed')
 
     if (booking_error) {
       return c.json({ error: booking_error.message }, 400)
