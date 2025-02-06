@@ -252,9 +252,11 @@ app.post('/get_available_slots', async (c) => {
     const resp = await fetch("https://run.nodegen.fun/execute/workflow/d14edf48-c813-4c77-a41f-14ffe6f6c5e5", {
       method: 'POST',
       body: JSON.stringify({
-        message,
-        threadId,
-        userId
+        input: {
+          message,
+          threadId,
+          userId
+        }
       })
     }).then(res => res.json())
     console.log('Response:', resp)
