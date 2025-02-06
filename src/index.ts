@@ -459,7 +459,7 @@ app.post('/submit_transaction', async (c) => {
     // }
 
     let tx_hash = ""
-    let amount = "0.01" // an arbitrary amount
+    let amount = "0.001" // an arbitrary amount
     const seller_id = "d5ec1a04-ac81-4417-bf6a-801dd6883028" // seller hardcoded id
 
     const supabase = createClient(c.env.SUPABASE_URL!, c.env.SUPABASE_ANON_KEY!)
@@ -615,64 +615,64 @@ app.post('/submit_transaction', async (c) => {
   }
 })
 
-app.put('/bookings/:booking_id/cancel', supabaseMiddleware, async (c) => {
-  const booking_id = c.req.param('booking_id')
-  const booking = await c.var.supabase.from('bookings')
-    .select('amount, status, buyer:users(wallet_address), seller:sellers(wallet_address, private_key)')
-    .eq('id', booking_id)
-    .maybeSingle()
-    .then(res => {
-      if (res.error) {
-        console.log('error', res.error)
-      }
-      return res.data as unknown as {
-        status: string
-        amount: string
-        buyer: {
-          wallet_address: string
-        }
-        seller: {
-          wallet_address: string
-          private_key: string
-        }
-      }
-    })
+// app.put('/bookings/:booking_id/cancel', supabaseMiddleware, async (c) => {
+//   const booking_id = c.req.param('booking_id')
+//   const booking = await c.var.supabase.from('bookings')
+//     .select('amount, status, buyer:users(wallet_address), seller:sellers(wallet_address, private_key)')
+//     .eq('id', booking_id)
+//     .maybeSingle()
+//     .then(res => {
+//       if (res.error) {
+//         console.log('error', res.error)
+//       }
+//       return res.data as unknown as {
+//         status: string
+//         amount: string
+//         buyer: {
+//           wallet_address: string
+//         }
+//         seller: {
+//           wallet_address: string
+//           private_key: string
+//         }
+//       }
+//     })
 
-  if (!booking) {
-    return c.json({ error: 'Booking not found' }, 404)
-  }
+//   if (!booking) {
+//     return c.json({ error: 'Booking not found' }, 404)
+//   }
 
-  console.log('Booking:', booking)
+//   console.log('Booking:', booking)
 
-  if (booking.status === 'cancelled') {
-    return c.json({ error: 'Booking is already cancelled' }, 400)
-  }
+//   if (booking.status === 'cancelled') {
+//     return c.json({ error: 'Booking is already cancelled' }, 400)
+//   }
 
-  if (booking.status !== 'confirmed') {
-    return c.json({ error: 'Booking is not confirmed' }, 400)
-  }
-
-
-  const client = createWalletClient({
-    account: privateKeyToAccount(booking.seller.private_key as `0x${string}`),
-    chain: base,
-    transport: http(c.env.RPC_URL),
-  })
-
-  const tx = await client.sendTransaction({
-    to: booking.buyer.wallet_address as `0x${string}`,
-    value: parseEther(booking.amount.toString()),
-  })
-
-  console.log('Transaction:', tx)
+//   if (booking.status !== 'confirmed') {
+//     return c.json({ error: 'Booking is not confirmed' }, 400)
+//   }
 
 
-  const { data, error } = await c.var.supabase.from('bookings').update({ status: 'cancelled', cancelled_tx: tx })
-    .eq('id', booking_id)
-    .select()
-    .single()
-  return c.json({ booking: data, error: error })
-})
+//   const client = createWalletClient({
+//     account: privateKeyToAccount(booking.seller.private_key as `0x${string}`),
+//     chain: base,
+//     transport: http(c.env.RPC_URL),
+//   })
+
+//   const tx = await client.sendTransaction({
+//     to: booking.buyer.wallet_address as `0x${string}`,
+//     value: parseEther(booking.amount.toString()),
+//   })
+
+//   console.log('Transaction:', tx)
+
+
+//   const { data, error } = await c.var.supabase.from('bookings').update({ status: 'cancelled', cancelled_tx: tx })
+//     .eq('id', booking_id)
+//     .select()
+//     .single()
+//   return c.json({ booking: data, error: error })
+// })
 
 // app.use('/wallets/:wallet/*', agentMiddleware)
 // app.post('/wallets/:wallet/messages', async (c) => {
