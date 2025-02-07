@@ -363,15 +363,12 @@ app.post('/get_user_appointment', async (c) => {
       return c.json({ error: user_error.message }, 400)
     }
 
-    const { data: bookings, error: booking_error } = await supabase
+    const { data: bookings } = await supabase
       .from('bookings')
       .select('*, users(name, phone_number)')
       .eq('user_id', user.id)
       .eq('status', 'confirmed')
-
-    if (booking_error) {
-      return c.json({ error: booking_error.message }, 400)
-    }
+      .throwOnError()
 
     console.log('bookings', bookings)
 
@@ -484,7 +481,7 @@ app.post('/booking/:booking_id/pay', supabaseMiddleware, async (c) => {
   return c.json({ tx })
 })
 
-app.post('/submit_transaction', async (c) => {
+app.post('/submit_transaction', supabaseMiddleware, async (c) => {
   const body = await c.req.json()
   let transactionDetails: any = null
   try {
@@ -493,11 +490,10 @@ app.post('/submit_transaction', async (c) => {
       transactionDetails = await parseTransactionDetails(body)
     } catch (error) {
       console.log('error', error)
-      return c.json({ error: 'Invalid request format', details: error instanceof Error ? error.message : 'Unknown error' }, 400)
+      throw new Error('Invalid request format')
     }
 
     console.log('Transaction Details:', transactionDetails)
-    // console.log('Transaction Details:', transactionDetails)
 
     // Example of transaction details:
     // Transaction Details: {
@@ -524,19 +520,12 @@ app.post('/submit_transaction', async (c) => {
     let amount = "0.001" // an arbitrary amount
     const seller_id = "d5ec1a04-ac81-4417-bf6a-801dd6883028" // seller hardcoded id
 
-    const supabase = createClient(c.env.SUPABASE_URL!, c.env.SUPABASE_ANON_KEY!)
-
-    const { data: user, error: user_error } = await supabase
+    const { data: user } = await c.var.supabase
       .from('users')
       .select('*')
       .eq('phone_number', transactionDetails.user_phone)
+      .throwOnError()
       .single<User>()
-
-    if (user_error) {
-      return c.json({ error: user_error.message }, 400)
-    }
-
-
 
     // create / update / delete 
 
@@ -544,7 +533,7 @@ app.post('/submit_transaction', async (c) => {
 
       console.log('Creating booking')
       const bookingData = {
-        user_id: user.id,
+        user_id: user!.id,
         from_time: `${transactionDetails.time.substring(0, 2)}:${transactionDetails.time.substring(2, 4)}:00`,
         to_time: `${Number(transactionDetails.time.substring(0, 2)) + 1}:${transactionDetails.time.substring(2, 4)}:00`,
         booking_date: transactionDetails.date,
@@ -554,16 +543,12 @@ app.post('/submit_transaction', async (c) => {
         amount: amount
       }
       console.log('Booking Data:', bookingData)
-      const { data: booking, error: booking_error } = await supabase
+      const { data: booking } = await c.var.supabase
         .from('bookings')
         .insert(bookingData)
         .select()
         .single<Booking>()
-
-      if (booking_error) {
-        console.log('booking_error', booking_error)
-        return c.json({ error: "Failed to create booking" }, 400)
-      }
+        .throwOnError()
 
       const charge_id = await createCharge(c.env.CB_ABI_URL, booking)
       booking.cb_charge_id = charge_id
@@ -572,13 +557,13 @@ app.post('/submit_transaction', async (c) => {
       transactionDetails.reference_id = booking.id
 
       // send transaction to the owner wallet
-      const tx = await executeTransfer(c.env.CB_ABI_URL, user, booking)
+      const tx = await executeTransfer(c.env.CB_ABI_URL, user!, booking)
       console.log('Transaction:', tx)
       tx_hash = tx
     } else if (transactionDetails.action === 'update') {
       console.log('Updating booking')
       // update the booking
-      const { error: booking_error } = await supabase
+      await c.var.supabase
         .from('bookings')
         .update({
           from_time: `${transactionDetails.time.substring(0, 2)}:${transactionDetails.time.substring(2, 4)}:00`,
@@ -589,24 +574,18 @@ app.post('/submit_transaction', async (c) => {
         .eq('id', transactionDetails.reference_id)
         .select()
         .single<Booking>()
+        .throwOnError()
 
-      if (booking_error) {
-        console.log('booking_error', booking_error)
-        return c.json({ error: "Failed to update booking" }, 400)
-      }
 
     } else if (transactionDetails.action === 'delete') {
       // delete the booking
 
-      const bookingWithSeller = await supabase.from('bookings')
+      const bookingWithSeller = await c.var.supabase.from('bookings')
         .select('amount, status, buyer:users(wallet_address), seller:sellers(wallet_address, private_key)')
         .eq('id', transactionDetails.reference_id)
         .single()
+        .throwOnError()
         .then(res => {
-          if (res.error) {
-            console.log('error', res.error)
-            return null
-          }
           return res.data as unknown as {
             status: string
             amount: string
@@ -621,7 +600,7 @@ app.post('/submit_transaction', async (c) => {
         })
 
       if (!bookingWithSeller) {
-        return c.json({ error: 'Booking not found' }, 404)
+        throw new Error('Booking not found')
       }
 
       switch (bookingWithSeller.status) {
@@ -635,15 +614,10 @@ app.post('/submit_transaction', async (c) => {
           return c.json({ error: 'Booking is not confirmed' }, 400)
       }
 
-      let err = await supabase.from('bookings')
+      await c.var.supabase.from('bookings')
         .update({ status: 'pending_cancel' })
         .eq('id', transactionDetails.reference_id)
-        .then(res => res.error)
-
-      if (err) {
-        console.log('err', err)
-        return c.json({ error: "Failed to cancel booking" }, 400)
-      }
+        .throwOnError()
 
       const client = createWalletClient({
         account: privateKeyToAccount(bookingWithSeller.seller.private_key as `0x${string}`),
@@ -658,15 +632,11 @@ app.post('/submit_transaction', async (c) => {
       console.log('Transaction:', tx)
       tx_hash = tx
 
-      const { error } = await supabase.from('bookings').update({ status: 'cancelled', cancelled_tx: tx })
+      await c.var.supabase.from('bookings').update({ status: 'cancelled', cancelled_tx: tx })
         .eq('id', transactionDetails.reference_id)
         .select()
         .single()
-
-      if (error) {
-        console.log('error', error)
-        return c.json({ error: "Failed to cancel booking" }, 400)
-      }
+        .throwOnError()
     }
 
     return c.json({
@@ -678,8 +648,9 @@ app.post('/submit_transaction', async (c) => {
       },
     })
   } catch (error) {
+    console.log('error', error)
     return c.json({
-      error: 'Invalid request format',
+      error: 'Failed to process transaction',
       details: error instanceof Error ? error.message : 'Unknown error'
     }, 400)
   }
