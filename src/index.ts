@@ -1,15 +1,13 @@
 // import 'dotenv/config'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { HonoSchema, postgresMiddleware, supabaseMiddleware } from './middleware'
-import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
+import { CoinbaseWallet, HonoSchema, postgresMiddleware, supabaseMiddleware } from './middleware'
+import { privateKeyToAccount } from 'viem/accounts'
 import { base } from "viem/chains";
 import { RetellRequest } from './types/RetellRequest'
-import { v4 as uuidv4 } from 'uuid';
 import { createClient } from '@supabase/supabase-js'
 
-const owner_wallet = "0xCaFE1246df2B91336A87b655247Bd91086632518"
-import { Booking, createAndPayCharge, User } from "./util";
+import { Booking, User } from "./util";
 import { createWalletClient, http, parseEther } from 'viem';
 
 
@@ -29,19 +27,22 @@ app.post('/phones/:phone/wallets', async (c) => {
   const name = body.name
 
   const sql = c.var.sql
-  const privateKey = generatePrivateKey()
-  const address = privateKeyToAccount(privateKey).address
+
+  const { wallet: cbwallet} = await fetch(`${c.env.CB_ABI_URL}/wallets`).then(res => res.json<CoinbaseWallet>())
+  // const privateKey = generatePrivateKey()
+  // const address = privateKeyToAccount(privateKey).address
 
   const wallet = {
-    wallet_address: address,
-    private_key: privateKey,
+    wallet_address: cbwallet.model.default_address.address_id,
+    wallet_id: cbwallet.model.default_address.wallet_id,
+    // private_key: privateKey,
     phone_number: phone,
     name,
   }
 
   await sql`INSERT INTO users ${sql(wallet)}`
 
-  return c.json({ address })
+  return c.json({ wallet })
 })
 
 app.get('/phones/:phone/wallets', async (c) => {
@@ -62,21 +63,45 @@ app.get('/phones/:phone/wallets', async (c) => {
   return c.json({ wallet })
 })
 
+async function createCharge(
+  CB_ABI_URL: string,
+  booking: Booking
+) {
+  const { charge_id } = await fetch(`${CB_ABI_URL}/charges`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      amount: booking.amount,
+      booking_id: booking.id,
+      booking_name: `Decall Checkout`,
+      booking_description: ``,
+    })
+  })
+  .then(res => res.json<{
+    charge_id: string
+  }>())
+
+  return charge_id
+}
+
 async function executeTransfer(
-  rpc_url: string,
+  CB_ABI_URL: string,
   fromWallet: User,
   booking: Booking
 ) {
 
-  const tx = await createAndPayCharge(
-    booking.id,
-    `Decall Checkout`,
-    ``,
-    booking.amount,
-    rpc_url,
-    base.id,
-    fromWallet
-  )
+  const { tx } = await fetch(`${CB_ABI_URL}/charges/${booking.cb_charge_id}/pay`, {
+    method: 'POST',
+    body: JSON.stringify({
+      wallet_id: fromWallet.wallet_id,
+    }),
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+    .then(res => res.json<{tx: string}>())
 
   return tx
 }
@@ -434,6 +459,31 @@ app.post('/webhook/coinbase/commerce', async (c) => {
   return c.json({ ok: true })
 })
 
+app.post('/booking/:booking_id/pay', supabaseMiddleware, async (c) => {
+  const booking_id = c.req.param('booking_id')
+  const { phone_number } = await c.req.json()
+  const booking = await c.var.supabase.from('bookings').select('*').eq('id', booking_id).single<Booking>().throwOnError().then(res => res.data)
+  if (!booking) {
+    return c.json({ error: 'Booking not found' }, 404)
+  }
+  const { data: payer} = await c.var.supabase
+  .from('users')
+  .select('*')
+  .eq('phone_number', phone_number)
+  .single<User>()
+  .throwOnError()
+
+  if (!booking.cb_charge_id) {
+    const charge_id = await createCharge(c.env.CB_ABI_URL, booking)
+    booking.cb_charge_id = charge_id
+    await c.var.supabase.from('bookings').update({ cb_charge_id: charge_id }).eq('id', booking_id).throwOnError()
+  }
+
+  const tx = await executeTransfer(c.env.CB_ABI_URL, payer, booking)
+
+  return c.json({ tx })
+})
+
 app.post('/submit_transaction', async (c) => {
   const body = await c.req.json()
   let transactionDetails: any = null
@@ -504,7 +554,7 @@ app.post('/submit_transaction', async (c) => {
         amount: amount
       }
       console.log('Booking Data:', bookingData)
-      const { data, error: booking_error } = await supabase
+      const { data: booking, error: booking_error } = await supabase
         .from('bookings')
         .insert(bookingData)
         .select()
@@ -514,9 +564,15 @@ app.post('/submit_transaction', async (c) => {
         console.log('booking_error', booking_error)
         return c.json({ error: "Failed to create booking" }, 400)
       }
-      transactionDetails.reference_id = data.id
+
+      const charge_id = await createCharge(c.env.CB_ABI_URL, booking)
+      booking.cb_charge_id = charge_id
+      await c.var.supabase.from('bookings').update({ cb_charge_id: charge_id }).eq('id', booking.id).throwOnError()
+
+      transactionDetails.reference_id = booking.id
+
       // send transaction to the owner wallet
-      const tx = await executeTransfer(c.env.RPC_URL, user, data)
+      const tx = await executeTransfer(c.env.CB_ABI_URL, user, booking)
       console.log('Transaction:', tx)
       tx_hash = tx
     } else if (transactionDetails.action === 'update') {

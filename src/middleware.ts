@@ -111,6 +111,42 @@ export function supabaseMiddleware(c: Context, next: Next) {
 //     return jwtMiddleware(c, next)
 // }
 
+export type CoinbaseWallet = {
+  wallet: {
+    addresses: Array<{
+      networkId: string,
+      id: string,
+      model: {
+        address_id: string,
+        index: number,
+        network_id: string,
+        public_key: string,
+        wallet_id: string
+      }
+    }>,
+    addressPathPrefix: string,
+    model: {
+      default_address: {
+        address_id: string,
+        index: number,
+        network_id: string,
+        public_key: string,
+        wallet_id: string
+      },
+      feature_set: {
+        faucet: boolean,
+        gasless_send: boolean,
+        server_signer: boolean,
+        stake: boolean,
+        trade: boolean,
+        transfer: boolean
+      },
+      id: string,
+      network_id: string,
+      server_signer_status: string
+    }
+  }
+}
 
 export type HonoSchema = {
   Bindings: {
@@ -123,6 +159,7 @@ export type HonoSchema = {
     CONTRACT_ADDRESS: string
     SUPABASE_URL: string
     SUPABASE_ANON_KEY: string
+    CB_ABI_URL: string
     // JWT_SECRET: string
     // INFERENCE_URL: string
     // UPSTASH_REDIS_REST_URL: string
