@@ -1,5 +1,5 @@
 // import 'dotenv/config'
-import { Hono } from 'hono'
+import { Context, Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { CoinbaseWallet, HonoSchema, postgresMiddleware, supabaseMiddleware } from './middleware'
 import { privateKeyToAccount } from 'viem/accounts'
@@ -7,7 +7,7 @@ import { base } from "viem/chains";
 import { RetellRequest } from './types/RetellRequest'
 import { createClient } from '@supabase/supabase-js'
 
-import { Booking, User } from "./util";
+import { Booking, cancelBooking, ChargeMetadata, createBooking, User } from "./util";
 import { createWalletClient, http, parseEther } from 'viem';
 
 
@@ -28,7 +28,7 @@ app.post('/phones/:phone/wallets', async (c) => {
 
   const sql = c.var.sql
 
-  const { wallet: cbwallet} = await fetch(`${c.env.CB_ABI_URL}/wallets`).then(res => res.json<CoinbaseWallet>())
+  const { wallet: cbwallet } = await fetch(`${c.env.CB_API_URL}/wallets`).then(res => res.json<CoinbaseWallet>())
   // const privateKey = generatePrivateKey()
   // const address = privateKeyToAccount(privateKey).address
 
@@ -62,49 +62,6 @@ app.get('/phones/:phone/wallets', async (c) => {
 
   return c.json({ wallet })
 })
-
-async function createCharge(
-  CB_ABI_URL: string,
-  booking: Booking
-) {
-  const { charge_id } = await fetch(`${CB_ABI_URL}/charges`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      amount: booking.amount,
-      booking_id: booking.id,
-      booking_name: `Decall Checkout`,
-      booking_description: ``,
-    })
-  })
-  .then(res => res.json<{
-    charge_id: string
-  }>())
-
-  return charge_id
-}
-
-async function executeTransfer(
-  CB_ABI_URL: string,
-  fromWallet: User,
-  booking: Booking
-) {
-
-  const { tx } = await fetch(`${CB_ABI_URL}/charges/${booking.cb_charge_id}/pay`, {
-    method: 'POST',
-    body: JSON.stringify({
-      wallet_id: fromWallet.wallet_id,
-    }),
-    headers: {
-      'Content-Type': 'application/json'
-    }
-  })
-    .then(res => res.json<{tx: string}>())
-
-  return tx
-}
 
 // app.post('/transfers', timeout(30000), async (c) => {
 //   const body = await c.req.json()
@@ -237,6 +194,59 @@ app.post('/get_user_info', async (c) => {
 // })
 
 // app.use('/wallets/:wallet/*', agentMiddleware)
+app.get('/booked_slots', async (c) => {
+  const seller_id = c.req.query('seller_id')
+  const booking_date = c.req.query('booking_date')
+  const from_time = c.req.query('from_time')
+  const to_time = c.req.query('to_time')
+
+  if (!seller_id) {
+    return c.json({ error: 'Seller ID is required' }, 400)
+  }
+
+  let query = c.var.sql`
+    SELECT 
+      b.from_time,
+      b.to_time,
+      b.booking_date,
+      b.status
+    FROM bookings b
+    WHERE b.seller_id = ${seller_id}
+  `
+
+  if (booking_date) {
+    query = c.var.sql`
+      ${query} 
+      AND b.booking_date = ${booking_date}::date
+    `
+  }
+
+  if (from_time) {
+    query = c.var.sql`
+      ${query}
+      AND b.from_time >= ${from_time}::time
+    `
+  }
+
+  if (to_time) {
+    query = c.var.sql`
+      ${query}
+      AND b.to_time <= ${to_time}::time
+    `
+  }
+
+  query = c.var.sql`
+    ${query}
+    AND b.status = 'confirmed'
+    ORDER BY b.booking_date, b.from_time
+  `
+
+  const slots = await query
+
+  return c.json({
+    slots
+  })
+})
 
 app.post('/get_available_slots', async (c) => {
   const body = await c.req.json()
@@ -426,59 +436,84 @@ const parseTransactionDetails = async (body: any) => {
 }
 
 app.post('/webhook/coinbase/commerce', async (c) => {
+  //TODO: handle cancle webhook
   const body = await c.req.json()
 
   console.log('metadata:', body.event.data.metadata)
   console.log('id:', body.id)
   console.log('type:', body.event.type)
+  const metadata = body.event.data.metadata as ChargeMetadata
+
+  let db_log_column = ""
+  switch (metadata.action) {
+    case 'create':
+      db_log_column = 'cb_commerce_logs'
+      break;
+    case 'cancel':
+      db_log_column = 'cb_cancelled_logs'
+      break;
+  }
+
+  const sql = c.var.sql
+
   switch (body.event.type) {
     case 'charge.created':
-      await c.var.sql`
-      UPDATE bookings SET cb_commerce_logs = ${body.event} WHERE id = ${body.event.data.metadata.booking_id}
+      await sql`
+      UPDATE bookings SET ${sql(db_log_column)} = ${body.event} WHERE id = ${body.event.data.metadata.booking_id}
       `
       break;
     case "charge:pending":
-      await c.var.sql`
-      UPDATE bookings SET status = 'confirmed', cb_commerce_logs = ${body.event} WHERE id = ${body.event.data.metadata.booking_id}
+      await sql`
+      UPDATE bookings SET status = 'confirmed', ${sql(db_log_column)} = ${body.event} WHERE id = ${body.event.data.metadata.booking_id}
       `
       break;
     case 'charge.confirmed':
-      await c.var.sql`
-      UPDATE bookings SET cb_commerce_logs = ${body.event} WHERE id = ${body.event.data.metadata.booking_id}
+      await sql`
+      UPDATE bookings SET ${sql(db_log_column)} = ${body.event} WHERE id = ${body.event.data.metadata.booking_id}
       `
       break;
     case 'charge.failed':
-      await c.var.sql`
-      UPDATE bookings SET cb_commerce_logs = ${body.event} WHERE id = ${body.event.data.metadata.booking_id}
+      await sql`
+      UPDATE bookings SET ${sql(db_log_column)} = ${body.event} WHERE id = ${body.event.data.metadata.booking_id}
       `
       break;
   }
   return c.json({ ok: true })
 })
 
-app.post('/booking/:booking_id/pay', supabaseMiddleware, async (c) => {
-  const booking_id = c.req.param('booking_id')
-  const { phone_number } = await c.req.json()
-  const booking = await c.var.supabase.from('bookings').select('*').eq('id', booking_id).single<Booking>().throwOnError().then(res => res.data)
-  if (!booking) {
-    return c.json({ error: 'Booking not found' }, 404)
-  }
-  const { data: payer} = await c.var.supabase
-  .from('users')
-  .select('*')
-  .eq('phone_number', phone_number)
-  .single<User>()
-  .throwOnError()
-
-  if (!booking.cb_charge_id) {
-    const charge_id = await createCharge(c.env.CB_ABI_URL, booking)
-    booking.cb_charge_id = charge_id
-    await c.var.supabase.from('bookings').update({ cb_charge_id: charge_id }).eq('id', booking_id).throwOnError()
-  }
-
-  const tx = await executeTransfer(c.env.CB_ABI_URL, payer, booking)
-
+// app.post('/booking/:booking_id/pay', supabaseMiddleware, async (c) => {
+//   const booking_id = c.req.param('booking_id')
+//   const { phone_number } = await c.req.json()
+//   const booking = {
+    
+//   }
+//   const res = await createBooking(c, booking, phone_number)
+//   return c.json({ tx: res.tx, charge_id: res.charge_id, booking_id })
+// })
+app.post('/bookings', supabaseMiddleware, async (c) => {
+  const body = await c.req.json<Booking>()
+  console.log('body', body)
+  const { data: user } = await c.var.supabase
+    .from('users')
+    .select('*')
+    .eq('id', body.user_id)
+    .single<User>()
+    .throwOnError()
+  const { tx } = await createBooking(c, body, user!)
   return c.json({ tx })
+})
+
+app.post('/bookings/:booking_id/cancel', supabaseMiddleware, async (c) => {
+  const booking_id = c.req.param('booking_id')
+
+  await cancelBooking(c, booking_id)
+    .then(res => {
+      return c.json({ tx: res.tx, charge_id: res.charge_id, booking_id })
+    })
+    .catch(error => {
+      console.error('error', error)
+      return c.json({ error: "Failed to cancel booking" }, 400)
+    })
 })
 
 app.post('/submit_transaction', supabaseMiddleware, async (c) => {
@@ -492,7 +527,6 @@ app.post('/submit_transaction', supabaseMiddleware, async (c) => {
       console.log('error', error)
       throw new Error('Invalid request format')
     }
-
     console.log('Transaction Details:', transactionDetails)
 
     // Example of transaction details:
@@ -518,20 +552,21 @@ app.post('/submit_transaction', supabaseMiddleware, async (c) => {
 
     let tx_hash = ""
     let amount = "0.001" // an arbitrary amount
-    const seller_id = "d5ec1a04-ac81-4417-bf6a-801dd6883028" // seller hardcoded id
+    // const seller_id = "d5ec1a04-ac81-4417-bf6a-801dd6883028" // seller hardcoded id
+    const seller_id = 'd5ec1a04-ac81-4417-bf6a-801dd6883028'
 
-    const { data: user } = await c.var.supabase
-      .from('users')
-      .select('*')
-      .eq('phone_number', transactionDetails.user_phone)
-      .throwOnError()
-      .single<User>()
 
     // create / update / delete 
 
     if (transactionDetails.action === 'create') {
 
-      console.log('Creating booking')
+      const { data: user } = await c.var.supabase
+        .from('users')
+        .select('*')
+        .eq('phone_number', transactionDetails.user_phone)
+        .throwOnError()
+        .single<User>()
+
       const bookingData = {
         user_id: user!.id,
         from_time: `${transactionDetails.time.substring(0, 2)}:${transactionDetails.time.substring(2, 4)}:00`,
@@ -542,24 +577,9 @@ app.post('/submit_transaction', supabaseMiddleware, async (c) => {
         seller_id: seller_id,
         amount: amount
       }
-      console.log('Booking Data:', bookingData)
-      const { data: booking } = await c.var.supabase
-        .from('bookings')
-        .insert(bookingData)
-        .select()
-        .single<Booking>()
-        .throwOnError()
-
-      const charge_id = await createCharge(c.env.CB_ABI_URL, booking)
-      booking.cb_charge_id = charge_id
-      await c.var.supabase.from('bookings').update({ cb_charge_id: charge_id }).eq('id', booking.id).throwOnError()
-
-      transactionDetails.reference_id = booking.id
-
-      // send transaction to the owner wallet
-      const tx = await executeTransfer(c.env.CB_ABI_URL, user!, booking)
-      console.log('Transaction:', tx)
+      const { tx, booking_id } = await createBooking(c, bookingData, user!)
       tx_hash = tx
+      transactionDetails.reference_id = booking_id
     } else if (transactionDetails.action === 'update') {
       console.log('Updating booking')
       // update the booking
@@ -579,68 +599,13 @@ app.post('/submit_transaction', supabaseMiddleware, async (c) => {
 
     } else if (transactionDetails.action === 'delete') {
       // delete the booking
-
-      const bookingWithSeller = await c.var.supabase.from('bookings')
-        .select('amount, status, buyer:users(wallet_address), seller:sellers(wallet_address, private_key)')
-        .eq('id', transactionDetails.reference_id)
-        .single()
-        .throwOnError()
-        .then(res => {
-          return res.data as unknown as {
-            status: string
-            amount: string
-            buyer: {
-              wallet_address: string
-            }
-            seller: {
-              wallet_address: string
-              private_key: string
-            }
-          }
-        })
-
-      if (!bookingWithSeller) {
-        throw new Error('Booking not found')
-      }
-
-      switch (bookingWithSeller.status) {
-        case 'confirmed':
-          break
-        case 'cancelled':
-          return c.json({ error: 'Booking is already cancelled' }, 400)
-        case 'pending_cancel':
-          return c.json({ error: 'Booking is already pending cancel' }, 400)
-        default:
-          return c.json({ error: 'Booking is not confirmed' }, 400)
-      }
-
-      await c.var.supabase.from('bookings')
-        .update({ status: 'pending_cancel' })
-        .eq('id', transactionDetails.reference_id)
-        .throwOnError()
-
-      const client = createWalletClient({
-        account: privateKeyToAccount(bookingWithSeller.seller.private_key as `0x${string}`),
-        chain: base,
-        transport: http(c.env.RPC_URL),
-      })
-
-      const tx = await client.sendTransaction({
-        to: bookingWithSeller.buyer.wallet_address as `0x${string}`,
-        value: parseEther(bookingWithSeller.amount.toString()),
-      })
-      console.log('Transaction:', tx)
+      const { tx } = await cancelBooking(c, transactionDetails.reference_id)
       tx_hash = tx
-
-      await c.var.supabase.from('bookings').update({ status: 'cancelled', cancelled_tx: tx })
-        .eq('id', transactionDetails.reference_id)
-        .select()
-        .single()
-        .throwOnError()
     }
 
     return c.json({
       response: {
+        success: true,
         id: transactionDetails.reference_id,
         tx_hash: tx_hash ? tx_hash : "",
         // query_processed: transactionDetails.query,

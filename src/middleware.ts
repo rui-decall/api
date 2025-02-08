@@ -159,7 +159,8 @@ export type HonoSchema = {
     CONTRACT_ADDRESS: string
     SUPABASE_URL: string
     SUPABASE_ANON_KEY: string
-    CB_ABI_URL: string
+    CB_API_URL: string
+    CB_COMMERCE_API_KEY: string
     // JWT_SECRET: string
     // INFERENCE_URL: string
     // UPSTASH_REDIS_REST_URL: string
