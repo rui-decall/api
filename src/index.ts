@@ -120,10 +120,17 @@ app.post('/get_user_info', async (c) => {
 
   console.log('user', user)
 
+  const today_information = await fetch(`https://time-api.junyaoxiandingchan.workers.dev/time/Asia-Singapore`, {
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  }).then(res => res.json())
+
   return c.json({
     user_name: user[0].name,
     wallet_address: user[0].wallet_address,
-    user_phone: user[0].phone_number
+    user_phone: user[0].phone_number,
+    today_information: JSON.stringify(today_information)
   })
 })
 
