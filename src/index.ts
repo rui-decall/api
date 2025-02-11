@@ -507,6 +507,10 @@ app.post('/bookings', supabaseMiddleware, async (c) => {
     .single<User>()
     .throwOnError()
   const { tx } = await createBooking(c, body, user!)
+    .catch(error => {
+      console.error('error', error)
+      return c.json({ error: error.message }, 400)
+    })
   return c.json({ tx })
 })
 
@@ -570,9 +574,15 @@ app.post('/submit_transaction', supabaseMiddleware, async (c) => {
       const { data: user } = await c.var.supabase
         .from('users')
         .select('*')
-        .eq('phone_number', transactionDetails.user_phone)
+        .eq('phone_number', body.call.retell_llm_dynamic_variables.user_phone)
         .throwOnError()
-        .single<User>()
+        .maybeSingle<User>()
+  
+
+      console.log('User:', user)
+      if (!user) {
+        throw new Error('User not found')
+      }
 
       const bookingData = {
         user_id: user!.id,
@@ -584,6 +594,8 @@ app.post('/submit_transaction', supabaseMiddleware, async (c) => {
         seller_id: seller_id,
         amount: amount
       }
+
+      console.log('Booking Data:', bookingData)
       const { tx, booking_id } = await createBooking(c, bookingData, user!)
       tx_hash = tx
       transactionDetails.reference_id = booking_id

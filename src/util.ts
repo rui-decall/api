@@ -51,7 +51,7 @@ export async function payCharge(
     charge_id: string,
 ) {
 
-    const { tx } = await fetch(`${c.env.CB_API_URL}/charges/${charge_id}/pay`, {
+    const { tx, error } = await fetch(`${c.env.CB_API_URL}/charges/${charge_id}/pay`, {
         method: 'POST',
         body: JSON.stringify({
             wallet_id: payer_wallet_id,
@@ -60,8 +60,11 @@ export async function payCharge(
             'Content-Type': 'application/json'
         }
     })
-        .then(res => res.json<{ tx: string }>())
+        .then(res => res.json<{ tx: string, error?: string }>())
 
+    if (error) {
+        throw new Error(error)
+    }
     if (!tx) {
         throw new Error('Failed to pay charge')
     }
@@ -73,6 +76,7 @@ export async function payCharge(
 export async function createBooking(c: Context<HonoSchema>, _booking: Booking, payer: User) {
 
       console.log('Booking Data:', _booking)
+      console.log('Payer Data:', payer)
 
       let booking = await c.var.supabase.from('bookings')
       .select()
@@ -98,8 +102,8 @@ export async function createBooking(c: Context<HonoSchema>, _booking: Booking, p
     
     
     console.log(89, booking)
-    console.log('create charge')
     if (!booking.cb_charge_id) {
+        console.log('create charge')
         const charge_id = await createCharge(
             c,
             'Payphone Checkout',
@@ -113,6 +117,8 @@ export async function createBooking(c: Context<HonoSchema>, _booking: Booking, p
         booking.cb_charge_id = charge_id
         await c.var.supabase.from('bookings').update({ cb_charge_id: charge_id }).eq('id', booking.id!).throwOnError()
     }
+
+    console.log('booking', booking)
 
     const tx = await payCharge(c, payer.wallet_id, booking.cb_charge_id)
     return {
